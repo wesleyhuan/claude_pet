@@ -85,4 +85,14 @@ public class UsageParserTests
 
         Assert.Null(result);
     }
+
+    [Fact]
+    public void TryParseLine_UsageFieldIsNotAnObject_ReturnsNull()
+    {
+        const string line = """{"type":"assistant","message":{"model":"claude-sonnet-5","usage":"oops"}}""";
+
+        var result = UsageParser.TryParseLine(line);
+
+        Assert.Null(result);
+    }
 }

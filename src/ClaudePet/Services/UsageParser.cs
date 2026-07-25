@@ -49,8 +49,10 @@ public static class UsageParser
 
             return new UsageSnapshot(contextTokens, limit, percent);
         }
-        catch (JsonException)
+        catch (Exception)
         {
+            // Catch all exceptions: non-object usage/message fields throw InvalidOperationException,
+            // non-numeric token fields throw InvalidOperationException or FormatException, etc.
             return null;
         }
     }
