@@ -7,10 +7,13 @@ namespace ClaudePet.Services;
 
 public sealed class UsageReader : IDisposable
 {
+    private const int DebounceMilliseconds = 300;
+
     private readonly string _projectsRoot;
     private readonly TailReader _tailReader = new();
     private readonly DebugLog _log;
     private readonly System.Timers.Timer _pollTimer;
+    private readonly System.Timers.Timer _debounceTimer;
     private readonly FileSystemWatcher? _watcher;
     private readonly object _refreshLock = new();
     private string? _lastWarnedModel;
@@ -26,6 +29,14 @@ public sealed class UsageReader : IDisposable
         _pollTimer = new System.Timers.Timer(5000) { AutoReset = true };
         _pollTimer.Elapsed += (_, _) => Refresh();
 
+        // Coalesce bursts of watcher events (a single write can fire several
+        // Changed/Created events in quick succession) behind a ~300ms debounce
+        // instead of doing a full recursive scan of every session file on every
+        // raw event. AutoReset = false: each event restarts a one-shot timer, and
+        // Refresh() only runs once no new event has arrived within the window.
+        _debounceTimer = new System.Timers.Timer(DebounceMilliseconds) { AutoReset = false };
+        _debounceTimer.Elapsed += (_, _) => Refresh();
+
         if (Directory.Exists(_projectsRoot))
         {
             _watcher = new FileSystemWatcher(_projectsRoot)
@@ -34,14 +45,20 @@ public sealed class UsageReader : IDisposable
                 Filter = "*.jsonl",
                 NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName
             };
-            _watcher.Changed += (_, _) => Refresh();
-            _watcher.Created += (_, _) => Refresh();
+            _watcher.Changed += (_, _) => RestartDebounce();
+            _watcher.Created += (_, _) => RestartDebounce();
             _watcher.EnableRaisingEvents = true;
         }
         else
         {
             _log.Write($"Projects root does not exist yet: {_projectsRoot}");
         }
+    }
+
+    private void RestartDebounce()
+    {
+        _debounceTimer.Stop();
+        _debounceTimer.Start();
     }
 
     public void Start()
@@ -112,6 +129,7 @@ public sealed class UsageReader : IDisposable
     public void Dispose()
     {
         _pollTimer.Dispose();
+        _debounceTimer.Dispose();
         _watcher?.Dispose();
     }
 }
