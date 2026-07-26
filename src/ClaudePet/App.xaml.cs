@@ -21,6 +21,7 @@ public partial class App : System.Windows.Application
     private const string SingleInstanceMutexName = "Local\\ClaudePetSingleInstance";
 
     private UsageReader? _usageReader;
+    private RateLimitReader? _rateLimitReader;
     private TrayIconManager? _trayIconManager;
     private PetWindow? _petWindow;
     private MoodStateMachine? _moodStateMachine;
@@ -175,6 +176,34 @@ public partial class App : System.Windows.Application
                 }
             };
             _usageReader.Start();
+
+            var apiKey = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY");
+            if (!string.IsNullOrWhiteSpace(apiKey))
+            {
+                _rateLimitReader = new RateLimitReader(apiKey, log);
+                _rateLimitReader.RateLimitChanged += snapshot =>
+                {
+                    // Same reasoning as the UsageChanged handler above: BeginInvoke
+                    // (never a blocking Invoke) and a HasShutdownStarted/HasShutdownFinished
+                    // guard, since this fires from a background timer thread that can race
+                    // application shutdown.
+                    if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+                        return;
+
+                    try
+                    {
+                        Dispatcher.BeginInvoke(() =>
+                        {
+                            _trayIconManager.UpdateRateLimit(snapshot);
+                        });
+                    }
+                    catch (Exception ex) when (ex is TaskCanceledException or InvalidOperationException)
+                    {
+                        log.Write($"RateLimitChanged handler: dispatcher unavailable, dropping update: {ex.Message}");
+                    }
+                };
+                _rateLimitReader.Start();
+            }
         }
         catch (Exception ex)
         {
@@ -189,6 +218,7 @@ public partial class App : System.Windows.Application
     protected override void OnExit(ExitEventArgs e)
     {
         _usageReader?.Dispose();
+        _rateLimitReader?.Dispose();
         _trayIconManager?.Dispose();
 
         if (_singleInstanceMutex is not null)
