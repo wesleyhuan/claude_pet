@@ -2,6 +2,7 @@ using System.Security;
 using System.Windows;
 using System.Windows.Forms;
 using ClaudePet.Logging;
+using ClaudePet.Models;
 using ClaudePet.Native;
 using ClaudePet.Settings;
 
@@ -9,6 +10,9 @@ namespace ClaudePet.Tray;
 
 public sealed class TrayIconManager : IDisposable
 {
+    // NotifyIcon.Text throws if assigned a string longer than this.
+    private const int MaxTooltipLength = 63;
+
     private readonly NotifyIcon _notifyIcon;
     private readonly PetWindow _petWindow;
     private readonly SettingsStore _settingsStore;
@@ -44,6 +48,18 @@ public sealed class TrayIconManager : IDisposable
             Text = "Claude Pet",
             ContextMenuStrip = menu
         };
+    }
+
+    public void UpdateUsage(UsageSnapshot? snapshot)
+    {
+        var text = snapshot is null
+            ? "Claude Pet: no active session"
+            : $"Claude Pet: {snapshot.Percent:F0}% ({snapshot.ContextTokens:N0}/{snapshot.ContextLimit:N0})";
+
+        if (text.Length > MaxTooltipLength)
+            text = text[..MaxTooltipLength];
+
+        _notifyIcon.Text = text;
     }
 
     private void ToggleDragMode(object? sender, EventArgs e)

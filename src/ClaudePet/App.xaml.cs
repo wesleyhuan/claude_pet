@@ -98,6 +98,11 @@ public partial class App : System.Windows.Application
                         _lastAppliedMood = mood;
                         _petWindow.SetMood(mood);
                     }
+
+                    // Unlike the mood band, the exact token count/percent can change
+                    // on every snapshot even when the mood band doesn't, so this is
+                    // updated unconditionally.
+                    _trayIconManager.UpdateUsage(snapshot);
                 });
             }
             catch (Exception ex) when (ex is TaskCanceledException or InvalidOperationException)
