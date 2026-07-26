@@ -5,12 +5,21 @@ namespace ClaudePet.Services;
 
 public static class UsageParser
 {
-    private const int DefaultContextLimit = 200_000;
+    // Real session logs on this machine show observed context tokens of 562,832
+    // (claude-opus-4-8) and 379,436 (claude-sonnet-5) — both blow past the old
+    // 200,000 hardcoded limit, saturating Math.Clamp at 100% for ordinary
+    // sessions. Raised to realistic values based on those observations.
+    private const int DefaultContextLimit = 1_000_000;
 
     private static readonly Dictionary<string, int> ContextLimits = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["claude-opus-4-8"] = 200_000,
-        ["claude-sonnet-5"] = 200_000,
+        ["claude-opus-4-8"] = 1_000_000,
+        ["claude-sonnet-5"] = 1_000_000,
+        ["claude-opus-5"] = 1_000_000,
+        // No real haiku session data has been observed on this machine to validate
+        // against. Haiku models have historically had smaller context windows than
+        // opus/sonnet, so 200_000 is used as a conservative placeholder rather than
+        // guessing a larger number without evidence.
         ["claude-haiku-4-5"] = 200_000,
     };
 
@@ -32,6 +41,15 @@ public static class UsageParser
             int inputTokens = GetInt(usage, "input_tokens");
             int cacheCreation = GetInt(usage, "cache_creation_input_tokens");
             int cacheRead = GetInt(usage, "cache_read_input_tokens");
+
+            // Interruptions/API errors emit synthetic lines (message.model == "<synthetic>")
+            // with all three token fields at zero. A real assistant turn is never zero
+            // context, so treat an all-zero reading as "not a real usage snapshot" rather
+            // than a legitimate 0% reading — otherwise it gets picked as "latest" by
+            // ParseLatest and incorrectly flips the pet to Happy/0%.
+            if (inputTokens == 0 && cacheCreation == 0 && cacheRead == 0)
+                return null;
+
             int contextTokens = inputTokens + cacheCreation + cacheRead;
 
             string? model = message.TryGetProperty("model", out var m) ? m.GetString() : null;
