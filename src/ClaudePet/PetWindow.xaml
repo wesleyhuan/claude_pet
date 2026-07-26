@@ -1,0 +1,16 @@
+<Window x:Class="ClaudePet.PetWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Claude Pet"
+        Width="128" Height="128"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize">
+    <Image x:Name="SpriteImage"
+           Width="128" Height="128"
+           RenderOptions.BitmapScalingMode="NearestNeighbor"
+           Stretch="Uniform" />
+</Window>
