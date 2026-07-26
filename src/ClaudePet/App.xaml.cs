@@ -1,6 +1,7 @@
 using System.IO;
 using System.Windows;
 using ClaudePet.Logging;
+using ClaudePet.Models;
 using ClaudePet.Services;
 using ClaudePet.Settings;
 using ClaudePet.Tray;
@@ -20,6 +21,7 @@ public partial class App : System.Windows.Application
     private PetWindow? _petWindow;
     private MoodStateMachine? _moodStateMachine;
     private System.Threading.Mutex? _singleInstanceMutex;
+    private Mood? _lastAppliedMood;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -84,7 +86,18 @@ public partial class App : System.Windows.Application
                 Dispatcher.BeginInvoke(() =>
                 {
                     var mood = _moodStateMachine.Update(snapshot);
-                    _petWindow.SetMood(mood);
+                    // MoodStateMachine.Update returns the current mood on every call,
+                    // including when it hasn't changed. During an active session,
+                    // watcher events fire far faster than the 500ms animation timer can
+                    // advance frames, so calling SetMood unconditionally kept resetting
+                    // _frameIndex to 0 and regenerating frames - freezing the bounce
+                    // animation exactly when the app was busiest. Only re-apply when the
+                    // mood band actually changed.
+                    if (mood != _lastAppliedMood)
+                    {
+                        _lastAppliedMood = mood;
+                        _petWindow.SetMood(mood);
+                    }
                 });
             }
             catch (Exception ex) when (ex is TaskCanceledException or InvalidOperationException)
