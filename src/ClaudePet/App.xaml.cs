@@ -9,10 +9,17 @@ namespace ClaudePet;
 
 public partial class App : System.Windows.Application
 {
+    // Named system-wide mutex so a second manually-launched instance (e.g. a user
+    // double-clicking the exe while "Run at startup" already has one running)
+    // shuts itself down instead of creating a second tray icon/pet/window and
+    // racing the first instance over the same settings/log files.
+    private const string SingleInstanceMutexName = "Global\\ClaudePetSingleInstance";
+
     private UsageReader? _usageReader;
     private TrayIconManager? _trayIconManager;
     private PetWindow? _petWindow;
     private MoodStateMachine? _moodStateMachine;
+    private System.Threading.Mutex? _singleInstanceMutex;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -22,6 +29,27 @@ public partial class App : System.Windows.Application
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "ClaudePet");
         var log = new DebugLog(Path.Combine(appDataDir, "debug.log"));
+
+        _singleInstanceMutex = new System.Threading.Mutex(initiallyOwned: false, SingleInstanceMutexName, out _);
+        bool acquiredMutex;
+        try
+        {
+            acquiredMutex = _singleInstanceMutex.WaitOne(TimeSpan.FromMilliseconds(500));
+        }
+        catch (AbandonedMutexException)
+        {
+            // A previous instance terminated without releasing the mutex, but
+            // ownership is still granted to us - safe to proceed.
+            acquiredMutex = true;
+        }
+
+        if (!acquiredMutex)
+        {
+            log.Write("Another Claude Pet instance is already running; shutting down this instance.");
+            Shutdown();
+            return;
+        }
+
         var settingsStore = new SettingsStore(Path.Combine(appDataDir, "settings.json"), log.Write);
 
         _petWindow = new PetWindow(settingsStore);
@@ -71,6 +99,20 @@ public partial class App : System.Windows.Application
     {
         _usageReader?.Dispose();
         _trayIconManager?.Dispose();
+
+        if (_singleInstanceMutex is not null)
+        {
+            try
+            {
+                _singleInstanceMutex.ReleaseMutex();
+            }
+            catch (ApplicationException)
+            {
+                // Not owned (e.g. we shut down before ever acquiring it) - fine to skip.
+            }
+            _singleInstanceMutex.Dispose();
+        }
+
         base.OnExit(e);
     }
 }

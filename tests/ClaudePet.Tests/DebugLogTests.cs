@@ -48,4 +48,56 @@ public class DebugLogTests : IDisposable
         Assert.Contains("first", lines[0]);
         Assert.Contains("second", lines[1]);
     }
+
+    [Fact]
+    public void Write_LogFileExceedsSizeCap_RotatesToSingleBackupAndStartsFresh()
+    {
+        var log = new DebugLog(FilePath);
+        var big = new string('x', 1024 * 1024 + 100); // > 1 MB cap
+
+        log.Write(big);
+        log.Write("after rotation");
+
+        var backupPath = FilePath + ".1";
+        Assert.True(File.Exists(backupPath));
+        Assert.Contains("xxxxx", File.ReadAllText(backupPath));
+
+        var mainContent = File.ReadAllText(FilePath);
+        Assert.Contains("after rotation", mainContent);
+        Assert.DoesNotContain("xxxxx", mainContent);
+    }
+
+    [Fact]
+    public void Write_LogFileExceedsSizeCapTwice_OverwritesExistingBackup()
+    {
+        var log = new DebugLog(FilePath);
+        var big = new string('x', 1024 * 1024 + 100);
+
+        log.Write(big);
+        log.Write(new string('y', 1024 * 1024 + 100));
+        log.Write("final");
+
+        var backupPath = FilePath + ".1";
+        var backupContent = File.ReadAllText(backupPath);
+        Assert.DoesNotContain("xxxxx", backupContent); // the first backup was overwritten
+        Assert.Contains("yyyyy", backupContent);
+
+        Assert.Contains("final", File.ReadAllText(FilePath));
+    }
+
+    [Fact]
+    public void Write_LogFileDirectoryInaccessible_DoesNotThrow()
+    {
+        var log = new DebugLog(FilePath);
+        var nestedDir = Path.GetDirectoryName(FilePath)!;
+        Directory.Delete(nestedDir, recursive: true);
+        // Replace the directory with a file of the same name, so writing to
+        // FilePath (a path under it) fails - simulates an inaccessible/unwritable
+        // log location without relying on OS-specific ACL manipulation.
+        File.WriteAllText(nestedDir, "occupying the directory's path");
+
+        var exception = Record.Exception(() => log.Write("this must not throw"));
+
+        Assert.Null(exception);
+    }
 }
