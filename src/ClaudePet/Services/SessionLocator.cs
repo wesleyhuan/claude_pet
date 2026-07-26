@@ -21,7 +21,15 @@ public static class SessionLocator
         var enumerationOptions = new EnumerationOptions
         {
             RecurseSubdirectories = true,
-            IgnoreInaccessible = true
+            IgnoreInaccessible = true,
+            // EnumerationOptions defaults AttributesToSkip to Hidden | System, which
+            // silently skips hidden/system files and folders - unlike the old
+            // SearchOption.AllDirectories overload (AttributesToSkip = 0 internally).
+            // A session file under a folder marked hidden by a sync/backup tool
+            // would otherwise become invisible to session lookup. None restores the
+            // old "skip nothing based on attributes" behavior while keeping
+            // IgnoreInaccessible = true for the actual fix this was for.
+            AttributesToSkip = FileAttributes.None
         };
 
         return Directory.EnumerateFiles(projectsRoot, "*.jsonl", enumerationOptions)
