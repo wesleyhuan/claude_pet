@@ -1,6 +1,7 @@
 using System.Security;
 using System.Windows;
 using System.Windows.Forms;
+using ClaudePet.Logging;
 using ClaudePet.Native;
 using ClaudePet.Settings;
 
@@ -11,13 +12,15 @@ public sealed class TrayIconManager : IDisposable
     private readonly NotifyIcon _notifyIcon;
     private readonly PetWindow _petWindow;
     private readonly SettingsStore _settingsStore;
+    private readonly DebugLog _log;
     private readonly ToolStripMenuItem _dragItem;
     private bool _dragMode;
 
-    public TrayIconManager(PetWindow petWindow, SettingsStore settingsStore)
+    public TrayIconManager(PetWindow petWindow, SettingsStore settingsStore, DebugLog log)
     {
         _petWindow = petWindow;
         _settingsStore = settingsStore;
+        _log = log;
 
         _dragItem = new ToolStripMenuItem("Enable dragging", null, ToggleDragMode);
 
@@ -68,7 +71,7 @@ public sealed class TrayIconManager : IDisposable
         }
         catch (Exception ex) when (ex is SecurityException or UnauthorizedAccessException)
         {
-            System.Diagnostics.Debug.WriteLine(
+            _log.Write(
                 $"[TrayIconManager.ToggleRunAtStartup] Failed to set startup registration to {newValue}: {ex}");
             return;
         }
