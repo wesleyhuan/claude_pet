@@ -10,15 +10,14 @@ namespace ClaudePet.Tray;
 
 public sealed class TrayIconManager : IDisposable
 {
-    // NotifyIcon.Text throws if assigned a string longer than this.
-    private const int MaxTooltipLength = 63;
-
     private readonly NotifyIcon _notifyIcon;
     private readonly PetWindow _petWindow;
     private readonly SettingsStore _settingsStore;
     private readonly DebugLog _log;
     private readonly ToolStripMenuItem _dragItem;
     private bool _dragMode;
+    private UsageSnapshot? _lastUsage;
+    private RateLimitSnapshot? _lastRateLimit;
 
     public TrayIconManager(PetWindow petWindow, SettingsStore settingsStore, DebugLog log)
     {
@@ -52,14 +51,19 @@ public sealed class TrayIconManager : IDisposable
 
     public void UpdateUsage(UsageSnapshot? snapshot)
     {
-        var text = snapshot is null
-            ? "Claude Pet: no active session"
-            : $"Claude Pet: {snapshot.Percent:F0}% ({snapshot.ContextTokens:N0}/{snapshot.ContextLimit:N0})";
+        _lastUsage = snapshot;
+        RefreshTooltip();
+    }
 
-        if (text.Length > MaxTooltipLength)
-            text = text[..MaxTooltipLength];
+    public void UpdateRateLimit(RateLimitSnapshot? snapshot)
+    {
+        _lastRateLimit = snapshot;
+        RefreshTooltip();
+    }
 
-        _notifyIcon.Text = text;
+    private void RefreshTooltip()
+    {
+        _notifyIcon.Text = TooltipFormatter.Format(_lastUsage, _lastRateLimit);
     }
 
     private void ToggleDragMode(object? sender, EventArgs e)
