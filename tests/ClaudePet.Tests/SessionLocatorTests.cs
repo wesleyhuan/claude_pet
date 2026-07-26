@@ -58,4 +58,46 @@ public class SessionLocatorTests : IDisposable
 
         Assert.Equal(topLevel, result);
     }
+
+    [Fact]
+    public void FindActiveSessionFile_InaccessibleSubfolder_StillFindsFilesInAccessibleSiblings()
+    {
+        // Directory.EnumerateFiles(path, pattern, SearchOption.AllDirectories) throws
+        // UnauthorizedAccessException on the first unreadable subfolder it hits,
+        // aborting the whole enumeration. Deny read/execute to the current user on a
+        // subfolder via icacls to reliably reproduce that on Windows, then confirm
+        // FindActiveSessionFile still finds the file in the accessible sibling folder
+        // instead of throwing.
+        var blockedDir = Path.Combine(_root, "blocked");
+        WriteFile(@"blocked\a.jsonl", DateTime.UtcNow.AddMinutes(-1));
+        var accessible = WriteFile(@"sibling\b.jsonl", DateTime.UtcNow);
+
+        var user = $"{Environment.UserDomainName}\\{Environment.UserName}";
+        RunIcacls($"\"{blockedDir}\" /deny \"{user}:(RX)\"");
+
+        try
+        {
+            var result = SessionLocator.FindActiveSessionFile(_root);
+            Assert.Equal(accessible, result);
+        }
+        finally
+        {
+            // Must remove the deny ACE before Dispose() tries to recursively delete
+            // _root, otherwise deleting "blocked" would itself throw.
+            RunIcacls($"\"{blockedDir}\" /remove:d \"{user}\"");
+        }
+    }
+
+    private static void RunIcacls(string arguments)
+    {
+        var psi = new System.Diagnostics.ProcessStartInfo("icacls", arguments)
+        {
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+        using var process = System.Diagnostics.Process.Start(psi)!;
+        process.WaitForExit(10_000);
+    }
 }

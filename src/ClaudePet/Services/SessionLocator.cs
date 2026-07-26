@@ -11,7 +11,20 @@ public static class SessionLocator
         if (!Directory.Exists(projectsRoot))
             return null;
 
-        return Directory.EnumerateFiles(projectsRoot, "*.jsonl", SearchOption.AllDirectories)
+        // Directory.EnumerateFiles(path, pattern, SearchOption.AllDirectories) throws
+        // UnauthorizedAccessException on the first unreadable subfolder it encounters,
+        // aborting the WHOLE enumeration - one inaccessible folder under
+        // ~/.claude/projects would permanently break session lookup (UsageReader's
+        // catch just means the same failure repeats on every refresh forever). The
+        // EnumerationOptions overload with IgnoreInaccessible = true skips inaccessible
+        // folders/files instead of aborting.
+        var enumerationOptions = new EnumerationOptions
+        {
+            RecurseSubdirectories = true,
+            IgnoreInaccessible = true
+        };
+
+        return Directory.EnumerateFiles(projectsRoot, "*.jsonl", enumerationOptions)
             .Where(path => !IsUnderSubagentsFolder(path))
             .Select(path => new FileInfo(path))
             .OrderByDescending(fi => fi.LastWriteTimeUtc)
