@@ -25,7 +25,7 @@ public sealed class SettingsStore
             var json = File.ReadAllText(_filePath);
             return JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
         }
-        catch (Exception ex) when (ex is IOException or JsonException)
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
         {
             _onError?.Invoke($"Failed to load settings from {_filePath}: {ex.Message}");
             return new AppSettings();
@@ -43,7 +43,7 @@ public sealed class SettingsStore
             var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(_filePath, json);
         }
-        catch (IOException ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             _onError?.Invoke($"Failed to save settings to {_filePath}: {ex.Message}");
         }
