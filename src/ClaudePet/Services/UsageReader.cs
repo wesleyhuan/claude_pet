@@ -128,8 +128,12 @@ public sealed class UsageReader : IDisposable
 
     public void Dispose()
     {
+        // Dispose the watcher first so no new Changed/Created event can fire
+        // RestartDebounce() on the timer below after it's disposed. An in-flight
+        // watcher callback racing this method (they run on a threadpool thread)
+        // would otherwise risk an ObjectDisposedException there.
+        _watcher?.Dispose();
         _pollTimer.Dispose();
         _debounceTimer.Dispose();
-        _watcher?.Dispose();
     }
 }

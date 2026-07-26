@@ -53,14 +53,19 @@ public class UsageParserTests
     }
 
     [Fact]
-    public void TryParseLine_ClaudeHaiku_UsesTwoHundredThousandLimit()
+    public void TryParseLine_ClaudeHaiku_FallsBackToDefaultLimit()
     {
+        // No haiku entry exists in ContextLimits (no real haiku session data has
+        // been observed to validate a specific limit against), so it must fall
+        // through to the same safe default as any other unrecognized model.
         const string line = """{"type":"assistant","message":{"model":"claude-haiku-4-5","usage":{"input_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":1}}}""";
+        string? reportedModel = null;
 
-        var result = UsageParser.TryParseLine(line);
+        var result = UsageParser.TryParseLine(line, model => reportedModel = model);
 
         Assert.NotNull(result);
-        Assert.Equal(200_000, result!.ContextLimit);
+        Assert.Equal(1_000_000, result!.ContextLimit);
+        Assert.Equal("claude-haiku-4-5", reportedModel);
     }
 
     [Theory]

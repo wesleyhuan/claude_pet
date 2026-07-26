@@ -16,11 +16,11 @@ public static class UsageParser
         ["claude-opus-4-8"] = 1_000_000,
         ["claude-sonnet-5"] = 1_000_000,
         ["claude-opus-5"] = 1_000_000,
-        // No real haiku session data has been observed on this machine to validate
-        // against. Haiku models have historically had smaller context windows than
-        // opus/sonnet, so 200_000 is used as a conservative placeholder rather than
-        // guessing a larger number without evidence.
-        ["claude-haiku-4-5"] = 200_000,
+        // No haiku entry: no real haiku session data has been observed on this
+        // machine to validate a limit against, and guessing a hardcoded number
+        // risks the exact same "wrong hardcoded limit saturates at 100%" bug this
+        // table exists to avoid. An unrecognized haiku line correctly falls
+        // through to the safe DefaultContextLimit below instead.
     };
 
     public static UsageSnapshot? TryParseLine(string line, Action<string>? onUnknownModel = null)
