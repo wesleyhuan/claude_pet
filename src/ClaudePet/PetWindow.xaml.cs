@@ -25,13 +25,16 @@ public partial class PetWindow : Window
         _settingsStore = settingsStore;
 
         var settings = _settingsStore.Load();
-        if (settings.WindowLeft >= 0 && settings.WindowTop >= 0)
+        if (settings.WindowLeft is { } left && settings.WindowTop is { } top && IsWithinVirtualScreen(left, top))
         {
-            Left = settings.WindowLeft;
-            Top = settings.WindowTop;
+            Left = left;
+            Top = top;
         }
         else
         {
+            // No saved position, or a position saved with a monitor that's since
+            // been disconnected (which would otherwise leave the pet permanently
+            // off-screen with no recovery) - fall back to the default corner.
             var workArea = SystemParameters.WorkArea;
             Left = workArea.Right - Width - 16;
             Top = workArea.Bottom - Height - 16;
@@ -88,5 +91,14 @@ public partial class PetWindow : Window
     {
         var settings = _settingsStore.Load() with { WindowLeft = Left, WindowTop = Top };
         _settingsStore.Save(settings);
+    }
+
+    private static bool IsWithinVirtualScreen(double left, double top)
+    {
+        var virtualLeft = SystemParameters.VirtualScreenLeft;
+        var virtualTop = SystemParameters.VirtualScreenTop;
+        var virtualRight = virtualLeft + SystemParameters.VirtualScreenWidth;
+        var virtualBottom = virtualTop + SystemParameters.VirtualScreenHeight;
+        return left >= virtualLeft && left <= virtualRight && top >= virtualTop && top <= virtualBottom;
     }
 }

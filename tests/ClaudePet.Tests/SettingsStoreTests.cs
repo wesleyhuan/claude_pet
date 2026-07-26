@@ -23,8 +23,8 @@ public class SettingsStoreTests : IDisposable
 
         var settings = store.Load();
 
-        Assert.Equal(-1, settings.WindowLeft);
-        Assert.Equal(-1, settings.WindowTop);
+        Assert.Null(settings.WindowLeft);
+        Assert.Null(settings.WindowTop);
         Assert.False(settings.RunAtStartup);
     }
 
@@ -38,6 +38,35 @@ public class SettingsStoreTests : IDisposable
         var loaded = store.Load();
 
         Assert.Equal(original, loaded);
+    }
+
+    [Fact]
+    public void SaveThenLoad_RoundTripsNullWindowPosition()
+    {
+        var store = new SettingsStore(FilePath);
+        var original = new AppSettings { WindowLeft = null, WindowTop = null, RunAtStartup = false };
+
+        store.Save(original);
+        var loaded = store.Load();
+
+        Assert.Null(loaded.WindowLeft);
+        Assert.Null(loaded.WindowTop);
+    }
+
+    [Fact]
+    public void SaveThenLoad_RoundTripsRealNegativeWindowPosition()
+    {
+        // A saved position is legitimately negative on multi-monitor setups where a
+        // monitor sits left of/above the primary - must round-trip distinctly from
+        // "unset" (null), not collide with an old -1 sentinel.
+        var store = new SettingsStore(FilePath);
+        var original = new AppSettings { WindowLeft = -1920, WindowTop = -200, RunAtStartup = false };
+
+        store.Save(original);
+        var loaded = store.Load();
+
+        Assert.Equal(-1920, loaded.WindowLeft);
+        Assert.Equal(-200, loaded.WindowTop);
     }
 
     [Fact]
@@ -60,7 +89,7 @@ public class SettingsStoreTests : IDisposable
 
         var settings = store.Load();
 
-        Assert.Equal(-1, settings.WindowLeft);
+        Assert.Null(settings.WindowLeft);
         Assert.NotNull(reportedError);
     }
 }
