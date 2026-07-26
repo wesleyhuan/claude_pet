@@ -95,4 +95,18 @@ public class TailReaderTests : IDisposable
 
         Assert.Equal(new[] { "short" }, lines);
     }
+
+    [Fact]
+    public void ReadNewLines_LookbackLandsExactlyOnLineBoundary_DoesNotDropTheLine()
+    {
+        // "AAAA\nCCCC\nDDDD\n" is 15 bytes; a lookback of 10 starts at byte 5,
+        // which is exactly the first byte of "CCCC" (a clean line start, not
+        // a partial line) — "CCCC" must NOT be dropped.
+        var path = NewFile("AAAA\nCCCC\nDDDD\n");
+        var reader = new TailReader(initialLookbackBytes: 10);
+
+        var lines = reader.ReadNewLines(path);
+
+        Assert.Equal(new[] { "CCCC", "DDDD" }, lines);
+    }
 }

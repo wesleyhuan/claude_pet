@@ -15,6 +15,15 @@ public sealed class TailReader
         _initialLookbackBytes = initialLookbackBytes;
     }
 
+    private static bool StartsAtLineBoundary(FileStream stream, long start)
+    {
+        if (start <= 0)
+            return true;
+
+        stream.Seek(start - 1, SeekOrigin.Begin);
+        return stream.ReadByte() == '\n';
+    }
+
     public IReadOnlyList<string> ReadNewLines(string path)
     {
         bool isNewFile = !string.Equals(_currentPath, path, StringComparison.OrdinalIgnoreCase);
@@ -26,7 +35,7 @@ public sealed class TailReader
         {
             _currentPath = path;
             var start = Math.Max(0, stream.Length - _initialLookbackBytes);
-            startedMidFile = start > 0;
+            startedMidFile = !StartsAtLineBoundary(stream, start);
             _position = start;
         }
         else if (stream.Length < _position)
