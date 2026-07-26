@@ -22,15 +22,39 @@ public partial class App : System.Windows.Application
     private MoodStateMachine? _moodStateMachine;
     private System.Threading.Mutex? _singleInstanceMutex;
     private Mood? _lastAppliedMood;
+    private DebugLog? _log;
 
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
 
+        // Register global unhandled-exception handlers as early as possible - before
+        // constructing anything else that could throw - so any failure past this
+        // point at least gets reported instead of dying silently. Handlers close
+        // over the nullable _log field rather than a local variable, since DebugLog
+        // itself hasn't been constructed yet.
+        DispatcherUnhandledException += OnDispatcherUnhandledException;
+        AppDomain.CurrentDomain.UnhandledException += OnAppDomainUnhandledException;
+
         var appDataDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "ClaudePet");
-        var log = new DebugLog(Path.Combine(appDataDir, "debug.log"));
+
+        DebugLog log;
+        try
+        {
+            log = new DebugLog(Path.Combine(appDataDir, "debug.log"));
+        }
+        catch (Exception)
+        {
+            // DebugLog's own construction (directory creation) could theoretically
+            // throw. Write() itself can never throw once constructed (it guards its
+            // own body), so falling back to a log under the temp directory - which is
+            // about as reliable a writable location as exists on Windows - is enough
+            // of a degraded path without over-engineering this further.
+            log = new DebugLog(Path.Combine(Path.GetTempPath(), "ClaudePet", "debug.log"));
+        }
+        _log = log;
 
         _singleInstanceMutex = new System.Threading.Mutex(initiallyOwned: false, SingleInstanceMutexName, out _);
         bool acquiredMutex;
@@ -132,5 +156,21 @@ public partial class App : System.Windows.Application
         }
 
         base.OnExit(e);
+    }
+
+    private void OnDispatcherUnhandledException(object sender, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e)
+    {
+        _log?.Write($"Unhandled dispatcher exception: {e.Exception}");
+        // Recoverable UI-thread exception - mark handled so it doesn't crash the
+        // whole background app.
+        e.Handled = true;
+    }
+
+    private void OnAppDomainUnhandledException(object sender, UnhandledExceptionEventArgs e)
+    {
+        // .NET terminates the process regardless of anything done here when
+        // e.IsTerminating is true - this can't be marked handled - but at least
+        // logging it means the failure is visible after the fact.
+        _log?.Write($"Unhandled AppDomain exception (IsTerminating={e.IsTerminating}): {e.ExceptionObject}");
     }
 }
