@@ -37,11 +37,32 @@ public partial class App : System.Windows.Application
         _usageReader = new UsageReader(projectsRoot, log);
         _usageReader.UsageChanged += snapshot =>
         {
-            Dispatcher.Invoke(() =>
+            // BeginInvoke (not Invoke): this callback can run on a FileSystemWatcher
+            // threadpool thread while the UI thread is synchronously blocked inside
+            // Start() -> Refresh() waiting on UsageReader's internal lock. A blocking
+            // Invoke here would deadlock (UI thread never pumps the dispatcher to
+            // service it; this thread never returns to release anything the UI thread
+            // is waiting on). Fire-and-forget is fine: nothing here needs to wait for
+            // the UI update to complete before Refresh() continues.
+            //
+            // Also guard against posting to a dispatcher that has begun/finished
+            // shutdown (e.g. a straggling watcher event after Application.Shutdown()),
+            // which would otherwise throw and crash the watcher's threadpool callback.
+            if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+                return;
+
+            try
             {
-                var mood = _moodStateMachine.Update(snapshot);
-                _petWindow.SetMood(mood);
-            });
+                Dispatcher.BeginInvoke(() =>
+                {
+                    var mood = _moodStateMachine.Update(snapshot);
+                    _petWindow.SetMood(mood);
+                });
+            }
+            catch (Exception ex) when (ex is TaskCanceledException or InvalidOperationException)
+            {
+                log.Write($"UsageChanged handler: dispatcher unavailable, dropping update: {ex.Message}");
+            }
         };
         _usageReader.Start();
     }

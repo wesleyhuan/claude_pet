@@ -52,6 +52,16 @@ public sealed class UsageReader : IDisposable
 
     private void Refresh()
     {
+        // The lock protects only the shared-state mutation below (TailReader /
+        // SessionLocator calls, _lastWarnedModel, _hadSession). UsageChanged is
+        // invoked AFTER the lock is released. Subscribers (e.g. App.xaml.cs) may
+        // synchronously pump a dispatcher; invoking while holding this lock risked
+        // a deadlock if the UI thread was itself blocked waiting on this same lock
+        // (e.g. inside Start() -> Refresh()) while a background FileSystemWatcher
+        // callback held the lock and tried to hand off to that same UI thread.
+        bool invokeNoSession = false;
+        UsageSnapshot? snapshotToInvoke = null;
+
         lock (_refreshLock)
         {
             try
@@ -62,28 +72,29 @@ public sealed class UsageReader : IDisposable
                     if (_hadSession != false)
                     {
                         _hadSession = false;
-                        UsageChanged?.Invoke(null);
+                        invokeNoSession = true;
                     }
-                    return;
                 }
-
-                var lines = _tailReader.ReadNewLines(activePath);
-                if (lines.Count == 0)
-                    return;
-
-                var snapshot = UsageParser.ParseLatest(lines, model =>
+                else
                 {
-                    if (_lastWarnedModel != model)
+                    var lines = _tailReader.ReadNewLines(activePath);
+                    if (lines.Count > 0)
                     {
-                        _log.Write($"Unknown model '{model}', falling back to default context limit.");
-                        _lastWarnedModel = model;
-                    }
-                });
+                        var snapshot = UsageParser.ParseLatest(lines, model =>
+                        {
+                            if (_lastWarnedModel != model)
+                            {
+                                _log.Write($"Unknown model '{model}', falling back to default context limit.");
+                                _lastWarnedModel = model;
+                            }
+                        });
 
-                if (snapshot is not null)
-                {
-                    _hadSession = true;
-                    UsageChanged?.Invoke(snapshot);
+                        if (snapshot is not null)
+                        {
+                            _hadSession = true;
+                            snapshotToInvoke = snapshot;
+                        }
+                    }
                 }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -91,6 +102,11 @@ public sealed class UsageReader : IDisposable
                 _log.Write($"UsageReader.Refresh failed reading active session file: {ex.Message}");
             }
         }
+
+        if (invokeNoSession)
+            UsageChanged?.Invoke(null);
+        else if (snapshotToInvoke is not null)
+            UsageChanged?.Invoke(snapshotToInvoke);
     }
 
     public void Dispose()
