@@ -99,6 +99,21 @@ public class RateLimitHeaderParserTests
     }
 
     [Fact]
+    public void Parse_FallsBackToRequestsVariant_WhenTokensAndInputTokensAbsent()
+    {
+        var headers = Headers(
+            ("anthropic-ratelimit-requests-remaining", "40"),
+            ("anthropic-ratelimit-requests-limit", "50"));
+
+        var result = RateLimitHeaderParser.Parse(headers);
+
+        Assert.Equal(40, result.RemainingTokens);
+        Assert.Equal(50, result.LimitTokens);
+        Assert.NotNull(result.Percent);
+        Assert.Equal(20.0, result.Percent!.Value, precision: 3);
+    }
+
+    [Fact]
     public void Parse_MixedCaseHeaderKeys_StillResolves()
     {
         var headers = Headers(

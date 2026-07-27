@@ -19,6 +19,7 @@ public sealed class RateLimitReader : IDisposable
     private readonly System.Timers.Timer _pollTimer;
     private bool _hasLoggedHeadersOnce;
     private string? _lastLoggedErrorStatus;
+    private string? _lastLoggedExceptionType;
 
     public event Action<RateLimitSnapshot?>? RateLimitChanged;
 
@@ -33,7 +34,7 @@ public sealed class RateLimitReader : IDisposable
 
     public void Start()
     {
-        _ = PollAsync();
+        _ = Task.Run(PollAsync);
         _pollTimer.Start();
     }
 
@@ -73,9 +74,10 @@ public sealed class RateLimitReader : IDisposable
                 return;
             }
             _lastLoggedErrorStatus = null;
+            _lastLoggedExceptionType = null;
 
             var snapshot = RateLimitHeaderParser.Parse(headers);
-            if (snapshot is { Percent: null, RemainingTokens: null, LimitTokens: null })
+            if (snapshot.Percent is null)
             {
                 _log.Write(
                     "RateLimitReader: parsed snapshot has no usable fields; raw headers were: " +
@@ -86,7 +88,12 @@ public sealed class RateLimitReader : IDisposable
         }
         catch (Exception ex)
         {
-            _log.Write($"RateLimitReader.PollAsync exception: {ex}");
+            var exceptionType = ex.GetType().Name;
+            if (_lastLoggedExceptionType != exceptionType)
+            {
+                _log.Write($"RateLimitReader.PollAsync exception: {ex}");
+                _lastLoggedExceptionType = exceptionType;
+            }
         }
     }
 

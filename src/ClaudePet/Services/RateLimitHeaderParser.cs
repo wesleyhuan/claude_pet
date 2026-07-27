@@ -13,18 +13,21 @@ public static class RateLimitHeaderParser
     {
         "anthropic-ratelimit-tokens-remaining",
         "anthropic-ratelimit-input-tokens-remaining",
+        "anthropic-ratelimit-requests-remaining",
     };
 
     private static readonly string[] LimitHeaderCandidates =
     {
         "anthropic-ratelimit-tokens-limit",
         "anthropic-ratelimit-input-tokens-limit",
+        "anthropic-ratelimit-requests-limit",
     };
 
     private static readonly string[] ResetHeaderCandidates =
     {
         "anthropic-ratelimit-tokens-reset",
         "anthropic-ratelimit-input-tokens-reset",
+        "anthropic-ratelimit-requests-reset",
     };
 
     public static RateLimitSnapshot Parse(IReadOnlyDictionary<string, string> headers)
