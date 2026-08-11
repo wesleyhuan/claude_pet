@@ -1,55 +1,80 @@
 # Claude Pet — Subscription Usage (Unofficial) — Design Spec
 
-Date: 2026-08-09
+Date: 2026-08-09 (revised 2026-08-12 — switched endpoint, see Revision Note)
 
 ## Overview
 
 Adds an opt-in, second candidate source for the tray tooltip's rate-limit
 line: the account's actual Pro/Max subscription 5-hour/weekly usage window,
-polled from Anthropic's undocumented `GET /api/oauth/usage` endpoint using
-the same OAuth credential Claude Code itself uses. This is the number the
+read from `anthropic-ratelimit-unified-*` response headers on an
+OAuth-authenticated call to Anthropic's `count_tokens` endpoint, using the
+same OAuth credential Claude Code itself uses. This is the number the
 original feedback ("did not show the current claude usage (5hr or weekly
 usage)") actually asked for — the shipped `RateLimitReader` feature
 (`docs/superpowers/specs/2026-07-26-rate-limit-usage-design.md`) is a proxy
-via API-key rate-limit headers, not the real subscription number.
+via per-API-key rate-limit headers, not the real subscription number.
+
+## Revision Note (2026-08-12)
+
+The original version of this spec (2026-08-09) targeted the undocumented
+`GET /api/oauth/usage` endpoint. Further research turned up a materially
+better path: Claude Code's own OAuth-authenticated API traffic already
+carries `anthropic-ratelimit-unified-*` response headers on ordinary
+Messages-family endpoints (confirmed across several independent
+`anthropics/claude-code` GitHub issues, plus third-party tool repos —
+several are literally issues asking Anthropic to *persist* headers Claude
+Code already receives and discards). This spec now targets that path
+instead. Everything about the opt-in/credential-handling/fallback
+philosophy is unchanged; what changed is the endpoint, the auth headers,
+and how the response is parsed (response headers instead of a JSON body).
+See `RateLimitReader`/`RateLimitHeaderParser` in the shipped feature — this
+new reader is now architecturally a close sibling of that one, not a
+separate JSON-endpoint client.
 
 ## Background / Why This Wasn't Built The First Time
 
-The endpoint is not part of Anthropic's public API surface:
+Neither the endpoint nor the headers are part of Anthropic's public,
+documented API surface:
 
-- No official documentation; behavior confirmed only via community
-  reverse-engineering (GitHub issues on `anthropics/claude-code`, the
-  `opencode` and `Claude-Code-Usage-Monitor` projects, and independent blog
-  writeups).
-- A related GitHub issue asking Anthropic to support third-party polling of
-  this endpoint was closed "not planned" — there is no vendor commitment
-  that it will keep working, keep its current shape, or stay reachable.
-- It rate-limits aggressively and, per multiple independent reports, the
-  429 backoff can get stuck and never recover within a session once
-  triggered.
-- Requires the OAuth session credential from
-  `%USERPROFILE%\.claude\.credentials.json` — a broader-scoped, more
-  sensitive credential than the `ANTHROPIC_API_KEY` the existing
-  `RateLimitReader` feature uses, since it's the full Claude Code login
-  session (plaintext file on Windows, protected only by NTFS permissions).
+- No official documentation of `anthropic-ratelimit-unified-*`; behavior
+  confirmed only via community reverse-engineering (multiple GitHub issues
+  on `anthropics/claude-code`, `steipete/CodexBar`, `openclaw`, and an
+  independent blog writeup).
+- These headers require **OAuth Bearer authentication** (the Claude Code
+  login credential) — they reflect the account's subscription usage
+  specifically, "independent of individual API keys" per the sources
+  found; a request authenticated with a plain `ANTHROPIC_API_KEY` is not
+  expected to carry them.
+- Requires reading `%USERPROFILE%\.claude\.credentials.json` — a
+  broader-scoped, more sensitive credential than the `ANTHROPIC_API_KEY`
+  the existing `RateLimitReader` feature uses, since it's the full Claude
+  Code login session (plaintext file on Windows, protected only by NTFS
+  permissions).
+- No vendor commitment that these headers keep existing or keep their
+  current names — this is Claude Code's own internal plumbing, not a
+  published contract.
 
 Given those risks, this is being built **opt-in only**, with defensive
 handling throughout, and explicit user acknowledgment via the toggle label
-that it's unofficial.
+that it's unofficial — same posture as the original endpoint-based version
+of this spec, just now on more solid technical footing (a standard,
+well-documented public endpoint, rather than a special hidden route that
+independently reported broken/permanently-stuck 429 behavior).
 
 ## Goals
 
 - Show the real subscription-level 5-hour/weekly usage percentage in the
   tray tooltip, when the user explicitly opts in.
 - Never worse than doing nothing: any failure (missing credential, network
-  error, endpoint shape change) falls back to whatever the existing
+  error, headers absent/renamed) falls back to whatever the existing
   `RateLimitReader` path would show, with no crash and no silent data
   corruption.
 - Minimize exposure of the OAuth credential: read it as few times as
   possible, hold it in memory only, never log its value.
-- Be a good API citizen despite polling an endpoint with no public rate
-  limit contract: poll infrequently, back off hard and increasingly on
-  failure, never hammer.
+- Be a good API citizen: poll infrequently, back off on failure — though
+  since this now rides on a standard documented endpoint rather than a
+  special hidden one, the aggressive/stuck-429 risk from the original
+  design is expected to be much lower.
 
 ## Non-Goals
 
@@ -62,6 +87,11 @@ that it's unofficial.
 - Removing or changing `RateLimitReader` — it keeps running unconditionally
   exactly as today; this feature is a second candidate for the same tooltip
   slot, not a replacement of the header-based approach.
+- Spoofing a `User-Agent: claude-code/<version>` value. That workaround was
+  specific to the old `/api/oauth/usage` endpoint's reported
+  User-Agent-gated throttling; there's no evidence the standard
+  `count_tokens` endpoint behaves that way, so this design sends an honest
+  client identity (see Open Assumptions).
 
 ## Architecture
 
@@ -81,10 +111,12 @@ Tray menu: "Show subscription usage (unofficial)" checkbox
         %USERPROFILE%\.claude\.credentials.json
             │ any failure (missing file / bad JSON / missing field) → skip this poll cycle, retry next tick, no backoff penalty
             ▼
-        GET https://api.anthropic.com/api/oauth/usage
+        POST https://api.anthropic.com/v1/messages/count_tokens
           headers: Authorization: Bearer <token>
+                   anthropic-version: 2023-06-01
                    anthropic-beta: oauth-2025-04-20
-                   User-Agent: claude-code/2.1.220
+          body: same minimal no-generation payload RateLimitReader already
+                sends (see Components §4)
             │
             ├─ HTTP failure (429/401/5xx/exception) → dedup-logged once per
             │   distinct status/exception type, backoff interval doubles
@@ -92,9 +124,10 @@ Tray menu: "Show subscription usage (unofficial)" checkbox
             │   401 additionally clears the cached token so the next
             │   attempt re-reads the credential file.
             │
-            └─ 200 OK → SubscriptionUsageParser.Parse(body)
-                    │ schema mismatch → dedup-logged once, treated like any
-                    │ other poll failure (backoff, no crash)
+            └─ 200 OK → SubscriptionUsageParser.Parse(responseHeaders)
+                    │ expected headers absent/unrecognized → dedup-logged
+                    │ once, treated like any other poll failure (backoff,
+                    │ no crash)
                     ▼
                 SubscriptionUsageSnapshot
                     │ raises SubscriptionUsageChanged(snapshot); backoff
@@ -114,7 +147,12 @@ unconditionally in the background whenever `ANTHROPIC_API_KEY` is set,
 regardless of this feature's toggle state — this is what makes the
 "fall back to existing display" behavior work with no special-casing:
 `TooltipFormatter` just prefers whichever of the two snapshots is present,
-subscription first.
+subscription first. The two readers are fully independent: same target URL
+(`count_tokens`), different auth (API key vs. OAuth Bearer), different
+credential source, different response field they read (JSON-body-derived
+`x-ratelimit-*`-family headers vs. `anthropic-ratelimit-unified-*`
+headers), and they can run simultaneously without interfering with each
+other.
 
 ## Components
 
@@ -126,33 +164,53 @@ subscription first.
    Never throws out of `TryRead()`. Never logs the token value — log
    messages on failure reference only "credential file missing" /
    "credential file malformed" / "missing expected field", never file
-   contents.
+   contents. **Unchanged from the original 2026-08-09 version.**
 
 2. **`SubscriptionUsageParser`** (new, `src/ClaudePet/Services/`) — pure
-   static parser mirroring `RateLimitHeaderParser`. Input: the raw JSON
-   response body. Output: `SubscriptionUsageSnapshot?` (`null` if the
-   expected fields aren't present in a recognizable shape). Responsibilities:
-   - Read `five_hour.utilization`/`five_hour.resets_at` and
-     `seven_day.utilization`/`seven_day.resets_at`; either may be absent
-     or `null` (mirrors observed `seven_day_opus: null` behavior) and
-     should be treated as "that window has no data," not an error.
-   - **Utilization scale normalization:** sources disagree on whether
-     `utilization` is 0–100 or 0–1. If the value is `<= 1.0`, treat it as
-     a fraction and multiply by 100; otherwise treat it as already a
-     percentage. Applied independently per window.
+   static parser, now mirroring `RateLimitHeaderParser`'s shape exactly:
+   input is a `Dictionary<string, string>` of response headers (not a JSON
+   body). Output: `SubscriptionUsageSnapshot?` (`null` if the expected
+   headers aren't present in a recognizable shape). Responsibilities:
+   - Read `anthropic-ratelimit-unified-5h-utilization` /
+     `anthropic-ratelimit-unified-5h-reset` and
+     `anthropic-ratelimit-unified-7d-utilization` /
+     `anthropic-ratelimit-unified-7d-reset`. Either pair may be absent
+     and should be treated as "that window has no data," not an error.
+   - **Utilization scale:** sources agree this is a 0.0–1.0 fraction
+     (e.g. `0.07`, `0.53`) — multiply by 100 for display. (Unlike the
+     original endpoint-based design, there's no scale ambiguity here; all
+     corroborating sources agree on 0.0–1.0. Still worth a defensive
+     clamp to `[0, 100]` after conversion in case of a malformed value,
+     but no dual-scale detection logic is needed.)
+   - **Reset time:** Unix epoch **seconds** (not milliseconds, not ISO
+     string) — convert via `DateTimeOffset.FromUnixTimeSeconds`.
    - Pick whichever of the two windows (that has data) has the higher
-     normalized percentage. If only one has data, use that one. If
-     neither has data, return `null`.
+     percentage. If only one has data, use that one. If neither has data,
+     return `null`.
    - `WindowLabel` is `"5h"` or `"7d"` depending on which window was
      selected.
+   - The `anthropic-ratelimit-unified-status` and
+     `-representative-claim` headers are not needed for this feature's
+     display logic (they matter for request-blocking decisions, which
+     this read-only tray display doesn't do) — parser ignores them.
 
 3. **`SubscriptionUsageSnapshot`** (new, `src/ClaudePet/Models/`) — record
    `SubscriptionUsageSnapshot(double Percent, string WindowLabel,
-   DateTimeOffset? ResetsAt)`.
+   DateTimeOffset? ResetsAt)`. **Unchanged from the original version.**
 
 4. **`SubscriptionUsageReader`** (new, `src/ClaudePet/Services/`),
-   `IDisposable` — mirrors `RateLimitReader`'s `Timer` + dedup-logging
-   pattern, with two differences:
+   `IDisposable` — mirrors `RateLimitReader` closely: same target URL
+   (`https://api.anthropic.com/v1/messages/count_tokens`), same minimal
+   request body (`{"model":"claude-haiku-4-5","messages":[{"role":"user",
+   "content":"hi"}]}` — reuse `RateLimitReader.RequestBody` or an
+   identical constant), same header-collection-into-`Dictionary` pattern
+   before handing off to the parser. Differs from `RateLimitReader` in:
+   - **Auth:** `Authorization: Bearer <oauth-access-token>` +
+     `anthropic-beta: oauth-2025-04-20`, instead of `x-api-key`. Still
+     sends `anthropic-version: 2023-06-01` (required on every Messages
+     API call regardless of auth scheme).
+   - **Credential source:** the OAuth token from
+     `SubscriptionCredentialReader`, not a constructor-supplied API key.
    - **Mutable backoff interval:** base 5 minutes; on each consecutive
      HTTP-level failure, double the timer's `Interval` up to a 60-minute
      ceiling; reset to 5 minutes on the next success. Missing/malformed
@@ -169,10 +227,7 @@ subscription first.
 
    Holds the cached `(string AccessToken, DateTimeOffset ExpiresAt)?` in a
    private field, populated via `SubscriptionCredentialReader` on first
-   need and re-populated when missing/expired/cleared-by-401. Constructs
-   the request with `User-Agent: claude-code/2.1.220` (a hardcoded,
-   plausible current Claude Code version string — see Open Assumptions)
-   and `anthropic-beta: oauth-2025-04-20`. Exposes
+   need and re-populated when missing/expired/cleared-by-401. Exposes
    `event Action<SubscriptionUsageSnapshot?>? SubscriptionUsageChanged` —
    only invoked on a successful parse (never invoked with `null` on
    failure; the UI simply keeps showing whatever it last had, per the
@@ -180,6 +235,7 @@ subscription first.
 
 5. **`AppSettings`** (modified) — adds
    `bool ShowSubscriptionUsage { get; init; }`, default `false`.
+   **Unchanged from the original version.**
 
 6. **`TrayIconManager`** (modified) — adds a
    `ToolStripMenuItem("Show subscription usage (unofficial)")` checkbox
@@ -194,6 +250,7 @@ subscription first.
    field and `UpdateSubscriptionUsage(SubscriptionUsageSnapshot? snapshot)`,
    called independently of `UpdateUsage`/`UpdateRateLimit`.
    `RefreshTooltip` passes all three snapshots to `TooltipFormatter.Format`.
+   **Unchanged from the original version.**
 
 7. **`TooltipFormatter`** (modified) — `Format` gains a third parameter,
    `SubscriptionUsageSnapshot? subscriptionUsage`. Line 2 selection
@@ -204,7 +261,7 @@ subscription first.
    logic, unchanged. The existing 63-character truncation/budget logic
    applies identically regardless of which source produced line 2 — it
    operates on the already-formatted string, not on which snapshot type
-   it came from.
+   it came from. **Unchanged from the original version.**
 
 8. **`App.xaml.cs`** (modified) — constructs `SubscriptionUsageReader`
    unconditionally (cheap — it does nothing until `Start()`), calls
@@ -214,6 +271,7 @@ subscription first.
    guard pattern used for `UsageChanged`/`RateLimitChanged`. Subscribes to
    `TrayIconManager.SubscriptionUsageToggled` to call `Start()`/`Stop()`
    live. Disposes the reader in `OnExit` alongside the other services.
+   **Unchanged from the original version.**
 
 ## Error Handling
 
@@ -230,24 +288,26 @@ subscription first.
   transient failure). A 401 additionally clears the in-memory cached
   token so the next poll re-reads the credential file, in case Claude
   Code rotated it via its own refresh flow.
-- Response parses as JSON but doesn't contain the expected `five_hour` /
-  `seven_day` shape → `SubscriptionUsageParser` returns `null`, treated
-  identically to an HTTP-level failure for logging/backoff purposes. This
-  is the expected degradation path if Anthropic changes the endpoint's
-  undocumented shape — the app keeps running, keeps showing whatever it
-  showed before (falling back to `RateLimitReader`'s data if this feature
-  never had a successful poll), never crashes.
+- Response is a 200 but the expected `anthropic-ratelimit-unified-5h-*` /
+  `-7d-*` headers are absent, or present but unparseable (non-numeric
+  utilization, non-numeric reset) → `SubscriptionUsageParser` returns
+  `null`, treated identically to an HTTP-level failure for
+  logging/backoff purposes. This is the expected degradation path if
+  Anthropic renames or removes these headers — the app keeps running,
+  keeps showing whatever it showed before (falling back to
+  `RateLimitReader`'s data if this feature never had a successful poll),
+  never crashes.
 - `SubscriptionUsageChanged` is only ever raised with a non-null snapshot;
   there's no "explicit null to clear the line" signal, by design, so a
   transient failure can't blank out a previously-good value.
 
 ## Testing
 
-- `SubscriptionUsageParser` — pure unit tests: 0–100 vs 0–1 scale
-  normalization for each window independently, `five_hour` vs `seven_day`
-  selection when both present, selection when only one is present,
-  `null`-window handling (mirroring observed `seven_day_opus: null`),
-  and malformed/missing-field input returning `null`.
+- `SubscriptionUsageParser` — pure unit tests: header presence/absence for
+  each window independently, `5h` vs `7d` selection when both present,
+  selection when only one is present, fraction-to-percent conversion,
+  epoch-seconds-to-`DateTimeOffset` conversion, and malformed/missing
+  header input returning `null`.
 - `SubscriptionCredentialReader` — unit tests against synthetic JSON
   written to a temp file (never the real `.credentials.json`): valid
   schema, missing file, malformed JSON, missing `accessToken` field,
@@ -261,31 +321,47 @@ subscription first.
   credential caching/expiry/401-clearing logic) is integration-style,
   verified manually against the real endpoint during implementation using
   the developer's own logged-in Claude Code session — same approach
-  `RateLimitReader` used for its own header-name verification.
+  `RateLimitReader` used for its own header-name verification. This is
+  also the point at which the header-name and value-format assumptions
+  below get confirmed or corrected.
 
 ## Open Assumptions
 
-- **Response schema is not independently confirmed against a live call**
-  — it's reconstructed from third-party reverse-engineering writeups
-  (GitHub issues/PRs, a blog post), which disagreed on the utilization
-  scale. The implementing task should make one real call during
-  implementation and log (structure only, not values) whether the 0–100
-  or 0–1 assumption holds, adjusting `SubscriptionUsageParser` if needed
-  — the normalization logic in this spec is designed to tolerate either,
-  but should still be verified once against real data.
-- **`User-Agent: claude-code/2.1.220` is a hardcoded version string, not
-  dynamically detected.** It will eventually go stale as Claude Code
-  releases new versions; per the community reports this design is based
-  on, the presence of a `claude-code/*`-shaped value (not an exact
-  version match) is what avoids the aggressive throttling, so staleness
-  is expected to degrade gracefully rather than break outright. Not worth
-  the complexity of reading the installed Claude Code version at runtime
-  for a value that's read-only telemetry to a third-party endpoint.
-- **This endpoint can be removed or reshaped by Anthropic at any time**
-  with no notice, per the earlier investigation (a GitHub issue requesting
-  official support was closed "not planned"). This design's entire error-
-  handling posture is built around that assumption already holding true
-  on day one, not as a hypothetical.
+- **Header names/format are not independently confirmed against a live
+  response** — reconstructed from third-party reverse-engineering
+  (multiple GitHub issues, one blog post), not official docs. The
+  implementing task should make one real OAuth-authenticated call during
+  implementation and log the full header set once (names only where
+  possible; if values must be logged to confirm the format, do so to a
+  local console/temporary breakpoint during development, not into
+  `debug.log`) before finalizing `SubscriptionUsageParser`'s exact header
+  keys — mirroring exactly how `RateLimitHeaderParser` was verified
+  against a real response for the original feature.
+- **Whether `count_tokens` (vs. only real `messages.create` calls) returns
+  these headers is not confirmed.** `RateLimitReader` already carries this
+  same open assumption for the API-key-side headers and hasn't hit a
+  problem; if implementation reveals `count_tokens` doesn't carry the
+  `anthropic-ratelimit-unified-*` headers, fall back to a minimal
+  `messages.create` call instead — same `SubscriptionUsageSnapshot` output
+  shape, no redesign needed.
+- **No `User-Agent` spoofing.** The original endpoint-based design sent
+  `User-Agent: claude-code/<version>` because community reports tied that
+  specific header to `/api/oauth/usage`'s throttling behavior. This
+  design targets a standard public endpoint instead, with no evidence of
+  User-Agent-gated throttling, so it sends whatever `HttpClient`'s default
+  identity is (same as `RateLimitReader` already does today) rather than
+  impersonating Claude Code.
+- **These headers may only appear for accounts on a plan with "unified
+  rate limits"** (per one source) — if the developer's own account
+  doesn't have them for some plan-related reason, that surfaces during
+  the same manual verification step above, and degrades to "feature
+  never gets a successful poll, always falls back to `RateLimitReader`,"
+  which is already a fully handled path per Error Handling.
+- **This endpoint/header combination can still change with no notice** —
+  it's Claude Code's internal plumbing, not a published contract, even
+  though it's carried on a stable, documented endpoint. This design's
+  error-handling posture is built around that assumption already holding
+  true on day one, not as a hypothetical.
 - **No token refresh is implemented.** If the access token expires and
   Claude Code isn't running/hasn't refreshed the file, this feature goes
   quiet (falls back per Error Handling) until either Claude Code refreshes
