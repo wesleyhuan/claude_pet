@@ -18,6 +18,9 @@ public sealed class TrayIconManager : IDisposable
     private bool _dragMode;
     private UsageSnapshot? _lastUsage;
     private RateLimitSnapshot? _lastRateLimit;
+    private SubscriptionUsageSnapshot? _lastSubscriptionUsage;
+
+    public event Action<bool>? SubscriptionUsageToggled;
 
     public TrayIconManager(PetWindow petWindow, SettingsStore settingsStore, DebugLog log)
     {
@@ -32,11 +35,17 @@ public sealed class TrayIconManager : IDisposable
             Checked = _settingsStore.Load().RunAtStartup
         };
 
+        var subscriptionUsageItem = new ToolStripMenuItem("Show subscription usage (unofficial)", null, ToggleSubscriptionUsage)
+        {
+            Checked = _settingsStore.Load().ShowSubscriptionUsage
+        };
+
         var quitItem = new ToolStripMenuItem("Quit", null, (_, _) => System.Windows.Application.Current.Shutdown());
 
         var menu = new ContextMenuStrip();
         menu.Items.Add(_dragItem);
         menu.Items.Add(runAtStartupItem);
+        menu.Items.Add(subscriptionUsageItem);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(quitItem);
 
@@ -61,9 +70,15 @@ public sealed class TrayIconManager : IDisposable
         RefreshTooltip();
     }
 
+    public void UpdateSubscriptionUsage(SubscriptionUsageSnapshot? snapshot)
+    {
+        _lastSubscriptionUsage = snapshot;
+        RefreshTooltip();
+    }
+
     private void RefreshTooltip()
     {
-        _notifyIcon.Text = TooltipFormatter.Format(_lastUsage, _lastRateLimit);
+        _notifyIcon.Text = TooltipFormatter.Format(_lastUsage, _lastRateLimit, _lastSubscriptionUsage);
     }
 
     private void ToggleDragMode(object? sender, EventArgs e)
@@ -99,6 +114,18 @@ public sealed class TrayIconManager : IDisposable
         item.Checked = newValue;
         var settings = _settingsStore.Load() with { RunAtStartup = newValue };
         _settingsStore.Save(settings);
+    }
+
+    private void ToggleSubscriptionUsage(object? sender, EventArgs e)
+    {
+        var item = (ToolStripMenuItem)sender!;
+        var newValue = !item.Checked;
+
+        item.Checked = newValue;
+        var settings = _settingsStore.Load() with { ShowSubscriptionUsage = newValue };
+        _settingsStore.Save(settings);
+
+        SubscriptionUsageToggled?.Invoke(newValue);
     }
 
     public void Dispose()
