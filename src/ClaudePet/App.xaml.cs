@@ -22,6 +22,7 @@ public partial class App : System.Windows.Application
 
     private UsageReader? _usageReader;
     private RateLimitReader? _rateLimitReader;
+    private SubscriptionUsageReader? _subscriptionUsageReader;
     private TrayIconManager? _trayIconManager;
     private PetWindow? _petWindow;
     private MoodStateMachine? _moodStateMachine;
@@ -204,6 +205,44 @@ public partial class App : System.Windows.Application
                 };
                 _rateLimitReader.Start();
             }
+
+            var credentialFilePath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".claude", ".credentials.json");
+
+            _subscriptionUsageReader = new SubscriptionUsageReader(credentialFilePath, log);
+            _subscriptionUsageReader.SubscriptionUsageChanged += snapshot =>
+            {
+                // Same reasoning as the UsageChanged/RateLimitChanged handlers above:
+                // BeginInvoke (never a blocking Invoke) and a
+                // HasShutdownStarted/HasShutdownFinished guard, since this fires from
+                // a background timer thread that can race application shutdown.
+                if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+                    return;
+
+                try
+                {
+                    Dispatcher.BeginInvoke(() =>
+                    {
+                        _trayIconManager.UpdateSubscriptionUsage(snapshot);
+                    });
+                }
+                catch (Exception ex) when (ex is TaskCanceledException or InvalidOperationException)
+                {
+                    log.Write($"SubscriptionUsageChanged handler: dispatcher unavailable, dropping update: {ex.Message}");
+                }
+            };
+
+            _trayIconManager.SubscriptionUsageToggled += enabled =>
+            {
+                if (enabled)
+                    _subscriptionUsageReader.Start();
+                else
+                    _subscriptionUsageReader.Stop();
+            };
+
+            if (settingsStore.Load().ShowSubscriptionUsage)
+                _subscriptionUsageReader.Start();
         }
         catch (Exception ex)
         {
@@ -219,6 +258,7 @@ public partial class App : System.Windows.Application
     {
         _usageReader?.Dispose();
         _rateLimitReader?.Dispose();
+        _subscriptionUsageReader?.Dispose();
         _trayIconManager?.Dispose();
 
         if (_singleInstanceMutex is not null)
