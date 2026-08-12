@@ -6,14 +6,17 @@ namespace ClaudePet.Services;
 
 public sealed class SubscriptionUsageReader : IDisposable
 {
-    private const string CountTokensUrl = "https://api.anthropic.com/v1/messages/count_tokens";
+    private const string MessagesUrl = "https://api.anthropic.com/v1/messages";
     private const string AnthropicVersion = "2023-06-01";
     private const string OAuthBeta = "oauth-2025-04-20";
-    // Cheapest available model; count_tokens does not bill for generation
-    // regardless of model choice, but a valid model id is required. Matches
-    // RateLimitReader's request body exactly - same endpoint, different auth.
+    // count_tokens does not return the anthropic-ratelimit-unified-* headers
+    // this feature depends on (confirmed against a live account - see the
+    // design spec's Open Assumptions); a real messages.create call is
+    // required to get them. max_tokens is capped at 1 to keep this
+    // intentional, accepted generation cost (roughly one output token per
+    // poll, every 5-60 min depending on backoff) as small as possible.
     private const string RequestBody =
-        """{"model":"claude-haiku-4-5","messages":[{"role":"user","content":"hi"}]}""";
+        """{"model":"claude-haiku-4-5","messages":[{"role":"user","content":"hi"}],"max_tokens":1}""";
 
     private const double BaseIntervalMs = 5 * 60 * 1000;
     private const double MaxIntervalMs = 60 * 60 * 1000;
@@ -67,7 +70,7 @@ public sealed class SubscriptionUsageReader : IDisposable
 
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, CountTokensUrl);
+            using var request = new HttpRequestMessage(HttpMethod.Post, MessagesUrl);
             request.Headers.Add("Authorization", $"Bearer {credential.Value.AccessToken}");
             request.Headers.Add("anthropic-version", AnthropicVersion);
             request.Headers.Add("anthropic-beta", OAuthBeta);
@@ -102,7 +105,7 @@ public sealed class SubscriptionUsageReader : IDisposable
                 var status = ((int)response.StatusCode).ToString();
                 if (_lastLoggedErrorStatus != status)
                 {
-                    _log.Write($"SubscriptionUsageReader: non-success HTTP {status} from count_tokens");
+                    _log.Write($"SubscriptionUsageReader: non-success HTTP {status} from messages");
                     _lastLoggedErrorStatus = status;
                 }
                 ApplyBackoff();
