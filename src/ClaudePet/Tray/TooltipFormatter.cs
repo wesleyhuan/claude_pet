@@ -7,11 +7,19 @@ public static class TooltipFormatter
     // NotifyIcon.Text throws if assigned a string longer than this.
     public const int MaxLength = 63;
 
-    public static string Format(UsageSnapshot? usage, RateLimitSnapshot? rateLimit, DateTimeOffset? now = null)
+    public static string Format(
+        UsageSnapshot? usage,
+        RateLimitSnapshot? rateLimit,
+        SubscriptionUsageSnapshot? subscriptionUsage = null,
+        DateTimeOffset? now = null)
     {
         var reference = now ?? DateTimeOffset.UtcNow;
         var line1 = FormatUsageLine(usage);
-        var line2 = FormatRateLimitLine(rateLimit, reference);
+        // Subscription usage (opt-in, real account data) takes priority over
+        // the API-key header-based rate-limit line when present; falls back
+        // to the header-based line when subscription data isn't available
+        // (feature disabled, not yet polled, or currently failing).
+        var line2 = FormatSubscriptionLine(subscriptionUsage, reference) ?? FormatRateLimitLine(rateLimit, reference);
 
         if (line2 is null)
             return Truncate(line1, MaxLength);
@@ -20,7 +28,7 @@ public static class TooltipFormatter
         if (combined.Length <= MaxLength)
             return combined;
 
-        // Truncate the rate-limit line first: the session-usage line is the
+        // Truncate the second line first: the session-usage line is the
         // established primary signal.
         var budget = MaxLength - line1.Length - 1; // -1 for the newline
         if (budget <= 0)
@@ -33,6 +41,17 @@ public static class TooltipFormatter
         usage is null
             ? "Claude Pet: no active session"
             : $"Claude Pet: {usage.Percent:F0}% ({usage.ContextTokens:N0}/{usage.ContextLimit:N0})";
+
+    private static string? FormatSubscriptionLine(SubscriptionUsageSnapshot? subscriptionUsage, DateTimeOffset now)
+    {
+        if (subscriptionUsage is null)
+            return null;
+
+        var resetPart = subscriptionUsage.ResetsAt is { } resetsAt
+            ? $", {FormatRelative(resetsAt, now)}"
+            : "";
+        return $"Sub: {subscriptionUsage.Percent:F0}% ({subscriptionUsage.WindowLabel}){resetPart}";
+    }
 
     private static string? FormatRateLimitLine(RateLimitSnapshot? rateLimit, DateTimeOffset now)
     {

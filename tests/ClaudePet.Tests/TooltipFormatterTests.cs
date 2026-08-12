@@ -30,7 +30,7 @@ public class TooltipFormatterTests
         var usage = new UsageSnapshot(443155, 1000000, 44.3);
         var rateLimit = new RateLimitSnapshot(880000, 1000000, 12.0, now.AddHours(3).AddMinutes(20));
 
-        var result = TooltipFormatter.Format(usage, rateLimit, now);
+        var result = TooltipFormatter.Format(usage, rateLimit, now: now);
 
         Assert.Equal("Claude Pet: 44% (443,155/1,000,000)\nRate limit: 12% used, 3h", result);
         Assert.True(result.Length <= TooltipFormatter.MaxLength);
@@ -69,7 +69,7 @@ public class TooltipFormatterTests
         var usage = new UsageSnapshot(int.MaxValue, int.MaxValue, 100.0);
         var rateLimit = new RateLimitSnapshot(1, 1000000, 99.9999, now.AddHours(23).AddMinutes(59));
 
-        var result = TooltipFormatter.Format(usage, rateLimit, now);
+        var result = TooltipFormatter.Format(usage, rateLimit, now: now);
 
         Assert.True(result.Length <= TooltipFormatter.MaxLength);
         Assert.StartsWith("Claude Pet: 100% (2,147,483,647/2,147,483,647)\n", result);
@@ -93,7 +93,7 @@ public class TooltipFormatterTests
         var now = DateTimeOffset.UtcNow;
         var rateLimit = new RateLimitSnapshot(0, 1000, 50.0, now.AddMinutes(-5));
 
-        var result = TooltipFormatter.Format(null, rateLimit, now);
+        var result = TooltipFormatter.Format(null, rateLimit, now: now);
 
         Assert.Equal("Claude Pet: no active session\nRate limit: 50% used, soon", result);
     }
@@ -104,7 +104,7 @@ public class TooltipFormatterTests
         var now = DateTimeOffset.UtcNow;
         var rateLimit = new RateLimitSnapshot(0, 1000, 50.0, now.AddMinutes(45));
 
-        var result = TooltipFormatter.Format(null, rateLimit, now);
+        var result = TooltipFormatter.Format(null, rateLimit, now: now);
 
         Assert.Equal("Claude Pet: no active session\nRate limit: 50% used, 45m", result);
     }
@@ -115,7 +115,7 @@ public class TooltipFormatterTests
         var now = DateTimeOffset.UtcNow;
         var rateLimit = new RateLimitSnapshot(0, 1000, 50.0, now.AddSeconds(20));
 
-        var result = TooltipFormatter.Format(null, rateLimit, now);
+        var result = TooltipFormatter.Format(null, rateLimit, now: now);
 
         Assert.Equal("Claude Pet: no active session\nRate limit: 50% used, 1m", result);
     }
@@ -126,7 +126,7 @@ public class TooltipFormatterTests
         var now = DateTimeOffset.UtcNow;
         var rateLimit = new RateLimitSnapshot(0, 1000, 50.0, now.AddHours(5).AddMinutes(30));
 
-        var result = TooltipFormatter.Format(null, rateLimit, now);
+        var result = TooltipFormatter.Format(null, rateLimit, now: now);
 
         Assert.Equal("Claude Pet: no active session\nRate limit: 50% used, 5h", result);
     }
@@ -137,8 +137,56 @@ public class TooltipFormatterTests
         var now = DateTimeOffset.UtcNow;
         var rateLimit = new RateLimitSnapshot(0, 1000, 50.0, now.AddDays(2).AddHours(3));
 
-        var result = TooltipFormatter.Format(null, rateLimit, now);
+        var result = TooltipFormatter.Format(null, rateLimit, now: now);
 
         Assert.Equal("Claude Pet: no active session\nRate limit: 50% used, 2d", result);
+    }
+
+    [Fact]
+    public void Format_SubscriptionUsagePresent_TakesPriorityOverRateLimit()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var rateLimit = new RateLimitSnapshot(500, 1000, 50.0, now.AddHours(1));
+        var subscriptionUsage = new SubscriptionUsageSnapshot(82.0, "5h", now.AddHours(2).AddMinutes(30));
+
+        var result = TooltipFormatter.Format(null, rateLimit, subscriptionUsage, now);
+
+        Assert.Equal("Claude Pet: no active session\nSub: 82% (5h), 2h", result);
+        Assert.DoesNotContain("Rate limit", result);
+    }
+
+    [Fact]
+    public void Format_SubscriptionUsageNull_FallsBackToRateLimit()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var rateLimit = new RateLimitSnapshot(500, 1000, 50.0, now.AddHours(1));
+
+        var result = TooltipFormatter.Format(null, rateLimit, subscriptionUsage: null, now: now);
+
+        Assert.Equal("Claude Pet: no active session\nRate limit: 50% used, 1h", result);
+    }
+
+    [Fact]
+    public void Format_SubscriptionUsageWithoutResetsAt_OmitsResetClause()
+    {
+        var subscriptionUsage = new SubscriptionUsageSnapshot(13.0, "7d", null);
+
+        var result = TooltipFormatter.Format(null, null, subscriptionUsage);
+
+        Assert.Equal("Claude Pet: no active session\nSub: 13% (7d)", result);
+    }
+
+    [Fact]
+    public void Format_SubscriptionLineCombinedExceedsLimit_TruncatesSubscriptionLine()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var usage = new UsageSnapshot(int.MaxValue, int.MaxValue, 100.0);
+        var subscriptionUsage = new SubscriptionUsageSnapshot(99.9999, "5h", now.AddHours(23).AddMinutes(59));
+
+        var result = TooltipFormatter.Format(usage, null, subscriptionUsage, now);
+
+        Assert.True(result.Length <= TooltipFormatter.MaxLength);
+        Assert.StartsWith("Claude Pet: 100% (2,147,483,647/2,147,483,647)\n", result);
+        Assert.EndsWith("…", result);
     }
 }
