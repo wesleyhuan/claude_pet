@@ -9,4 +9,9 @@ public sealed record AppSettings
     public double? WindowLeft { get; init; }
     public double? WindowTop { get; init; }
     public bool RunAtStartup { get; init; }
+
+    // Opt-in: polls Anthropic's undocumented anthropic-ratelimit-unified-*
+    // headers via the user's Claude Code OAuth credential. See
+    // docs/superpowers/specs/2026-08-09-subscription-usage-design.md.
+    public bool ShowSubscriptionUsage { get; init; }
 }

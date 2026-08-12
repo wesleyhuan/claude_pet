@@ -26,6 +26,7 @@ public class SettingsStoreTests : IDisposable
         Assert.Null(settings.WindowLeft);
         Assert.Null(settings.WindowTop);
         Assert.False(settings.RunAtStartup);
+        Assert.False(settings.ShowSubscriptionUsage);
     }
 
     [Fact]
@@ -38,6 +39,18 @@ public class SettingsStoreTests : IDisposable
         var loaded = store.Load();
 
         Assert.Equal(original, loaded);
+    }
+
+    [Fact]
+    public void SaveThenLoad_RoundTripsShowSubscriptionUsage()
+    {
+        var store = new SettingsStore(FilePath);
+        var original = new AppSettings { ShowSubscriptionUsage = true };
+
+        store.Save(original);
+        var loaded = store.Load();
+
+        Assert.True(loaded.ShowSubscriptionUsage);
     }
 
     [Fact]
