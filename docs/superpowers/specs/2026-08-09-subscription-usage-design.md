@@ -1,20 +1,21 @@
 # Claude Pet — Subscription Usage (Unofficial) — Design Spec
 
-Date: 2026-08-09 (revised 2026-08-12 — switched endpoint, see Revision Note)
+Date: 2026-08-09 (revised 2026-08-12 — switched endpoint, see Revision Notes)
 
 ## Overview
 
 Adds an opt-in, second candidate source for the tray tooltip's rate-limit
 line: the account's actual Pro/Max subscription 5-hour/weekly usage window,
 read from `anthropic-ratelimit-unified-*` response headers on an
-OAuth-authenticated call to Anthropic's `count_tokens` endpoint, using the
-same OAuth credential Claude Code itself uses. This is the number the
-original feedback ("did not show the current claude usage (5hr or weekly
-usage)") actually asked for — the shipped `RateLimitReader` feature
+OAuth-authenticated call to Anthropic's `POST /v1/messages` endpoint (a real,
+tiny generation call with `max_tokens: 1` — see the second Revision Note
+below), using the same OAuth credential Claude Code itself uses. This is the
+number the original feedback ("did not show the current claude usage (5hr or
+weekly usage)") actually asked for — the shipped `RateLimitReader` feature
 (`docs/superpowers/specs/2026-07-26-rate-limit-usage-design.md`) is a proxy
 via per-API-key rate-limit headers, not the real subscription number.
 
-## Revision Note (2026-08-12)
+## Revision Note (2026-08-12, endpoint family: `/api/oauth/usage` → Messages)
 
 The original version of this spec (2026-08-09) targeted the undocumented
 `GET /api/oauth/usage` endpoint. Further research turned up a materially
@@ -30,6 +31,28 @@ and how the response is parsed (response headers instead of a JSON body).
 See `RateLimitReader`/`RateLimitHeaderParser` in the shipped feature — this
 new reader is now architecturally a close sibling of that one, not a
 separate JSON-endpoint client.
+
+## Revision Note (2026-08-12, second pivot: `count_tokens` → real `messages.create`)
+
+This spec's first revision (above) still assumed the plan's originally
+proposed `POST /v1/messages/count_tokens` endpoint — free, no-generation —
+would carry the `anthropic-ratelimit-unified-*` headers. Task 4's live
+verification against a real logged-in Claude Code session (the same
+verification step this spec's Open Assumptions section called for) showed
+that `count_tokens` responses do **not** carry those headers; only a real
+`POST /v1/messages` call does. Implementation switched to a real
+`messages.create` call with `max_tokens: 1` (this spec's own pre-approved
+fallback — see Open Assumptions: "if implementation reveals `count_tokens`
+doesn't carry the ... headers, fall back to a minimal `messages.create`
+call instead"). This was correctly implemented and reviewed at the task
+level; this note exists because the rest of this document (Architecture,
+Components §4, Non-Goals) still described `count_tokens` and its
+no-generation-billing premise, and has now been corrected to match.
+Concretely, this means the feature issues a real (tiny, `max_tokens: 1`)
+generation call roughly every 5–60 minutes while enabled — depending on
+backoff state — consuming a small amount of the same subscription quota it
+displays. See `src/ClaudePet/Services/SubscriptionUsageReader.cs` for the
+exact current request.
 
 ## Background / Why This Wasn't Built The First Time
 
@@ -90,8 +113,8 @@ independently reported broken/permanently-stuck 429 behavior).
 - Spoofing a `User-Agent: claude-code/<version>` value. That workaround was
   specific to the old `/api/oauth/usage` endpoint's reported
   User-Agent-gated throttling; there's no evidence the standard
-  `count_tokens` endpoint behaves that way, so this design sends an honest
-  client identity (see Open Assumptions).
+  `POST /v1/messages` endpoint behaves that way, so this design sends an
+  honest client identity (see Open Assumptions).
 
 ## Architecture
 
@@ -111,12 +134,13 @@ Tray menu: "Show subscription usage (unofficial)" checkbox
         %USERPROFILE%\.claude\.credentials.json
             │ any failure (missing file / bad JSON / missing field) → skip this poll cycle, retry next tick, no backoff penalty
             ▼
-        POST https://api.anthropic.com/v1/messages/count_tokens
+        POST https://api.anthropic.com/v1/messages
           headers: Authorization: Bearer <token>
                    anthropic-version: 2023-06-01
                    anthropic-beta: oauth-2025-04-20
-          body: same minimal no-generation payload RateLimitReader already
-                sends (see Components §4)
+          body: real minimal generation payload, max_tokens: 1 (only a real
+                messages.create call carries the anthropic-ratelimit-unified-*
+                headers — see Revision Note above; Components §4)
             │
             ├─ HTTP failure (429/401/5xx/exception) → dedup-logged once per
             │   distinct status/exception type, backoff interval doubles
@@ -147,12 +171,14 @@ unconditionally in the background whenever `ANTHROPIC_API_KEY` is set,
 regardless of this feature's toggle state — this is what makes the
 "fall back to existing display" behavior work with no special-casing:
 `TooltipFormatter` just prefers whichever of the two snapshots is present,
-subscription first. The two readers are fully independent: same target URL
-(`count_tokens`), different auth (API key vs. OAuth Bearer), different
-credential source, different response field they read (JSON-body-derived
-`x-ratelimit-*`-family headers vs. `anthropic-ratelimit-unified-*`
-headers), and they can run simultaneously without interfering with each
-other.
+subscription first. The two readers are independent, different auth (API
+key vs. OAuth Bearer), different credential source, different response
+headers they read (`x-ratelimit-*`-family headers vs.
+`anthropic-ratelimit-unified-*` headers) — and, per the second Revision
+Note above, now also different target endpoints (`RateLimitReader` still
+uses `count_tokens`; `SubscriptionUsageReader` uses a real
+`POST /v1/messages` call, since only the latter carries the unified-header
+family). They can run simultaneously without interfering with each other.
 
 ## Components
 
@@ -199,12 +225,21 @@ other.
    DateTimeOffset? ResetsAt)`. **Unchanged from the original version.**
 
 4. **`SubscriptionUsageReader`** (new, `src/ClaudePet/Services/`),
-   `IDisposable` — mirrors `RateLimitReader` closely: same target URL
-   (`https://api.anthropic.com/v1/messages/count_tokens`), same minimal
-   request body (`{"model":"claude-haiku-4-5","messages":[{"role":"user",
-   "content":"hi"}]}` — reuse `RateLimitReader.RequestBody` or an
-   identical constant), same header-collection-into-`Dictionary` pattern
-   before handing off to the parser. Differs from `RateLimitReader` in:
+   `IDisposable` — mirrors `RateLimitReader`'s overall shape (timer-driven
+   polling, header-collection-into-`Dictionary` pattern before handing off
+   to the parser, dedup-logging, backoff), but per the second Revision Note
+   above targets a **different endpoint** than `RateLimitReader`: a real
+   `POST https://api.anthropic.com/v1/messages` call (not `count_tokens` —
+   live verification during Task 4 showed `count_tokens` doesn't carry the
+   `anthropic-ratelimit-unified-*` headers this feature needs) with body
+   `{"model":"claude-haiku-4-5","messages":[{"role":"user","content":"hi"}],
+   "max_tokens":1}` — `max_tokens: 1` keeps the accepted, intentional
+   generation cost (roughly one output token per poll, every 5–60 minutes
+   depending on backoff) as small as possible. See
+   `src/ClaudePet/Services/SubscriptionUsageReader.cs` for the exact
+   current constants. Differs from `RateLimitReader` in:
+   - **Endpoint:** real `messages.create` (`/v1/messages`), not
+     `/v1/messages/count_tokens` — see above.
    - **Auth:** `Authorization: Bearer <oauth-access-token>` +
      `anthropic-beta: oauth-2025-04-20`, instead of `x-api-key`. Still
      sends `anthropic-version: 2023-06-01` (required on every Messages
@@ -337,13 +372,17 @@ other.
   `debug.log`) before finalizing `SubscriptionUsageParser`'s exact header
   keys — mirroring exactly how `RateLimitHeaderParser` was verified
   against a real response for the original feature.
-- **Whether `count_tokens` (vs. only real `messages.create` calls) returns
-  these headers is not confirmed.** `RateLimitReader` already carries this
-  same open assumption for the API-key-side headers and hasn't hit a
-  problem; if implementation reveals `count_tokens` doesn't carry the
-  `anthropic-ratelimit-unified-*` headers, fall back to a minimal
-  `messages.create` call instead — same `SubscriptionUsageSnapshot` output
-  shape, no redesign needed.
+- **RESOLVED during Task 4 (see second Revision Note above):** whether
+  `count_tokens` (vs. only real `messages.create` calls) returns these
+  headers was open at design time; live verification confirmed
+  `count_tokens` does **not** carry them, so the implementation uses the
+  pre-approved fallback — a minimal real `messages.create` call
+  (`max_tokens: 1`) — instead. Same `SubscriptionUsageSnapshot` output
+  shape, no redesign needed, exactly as anticipated below. Note this means
+  `RateLimitReader` and `SubscriptionUsageReader` no longer share a target
+  endpoint (`RateLimitReader` still uses the free `count_tokens` endpoint
+  for its own purposes; only `SubscriptionUsageReader` needed to move to a
+  real generation call).
 - **No `User-Agent` spoofing.** The original endpoint-based design sent
   `User-Agent: claude-code/<version>` because community reports tied that
   specific header to `/api/oauth/usage`'s throttling behavior. This

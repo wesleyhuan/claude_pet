@@ -72,7 +72,22 @@ public sealed class SubscriptionUsageReader : IDisposable
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Post, MessagesUrl);
-            request.Headers.Add("Authorization", $"Bearer {credential.Value.AccessToken}");
+            // TryAddWithoutValidation (not .Add): .Add validates the header value and
+            // throws FormatException with the offending value - i.e. the raw "Bearer
+            // <token>" string - embedded verbatim in the exception message on failure.
+            // That exception would be caught by this method's outer catch block below,
+            // which logs `ex` to debug.log - meaning a token containing any
+            // header-illegal character (whitespace, newline, control char) could leak
+            // into a plaintext, per-user log file. The credential file is only
+            // validated as a non-empty string upstream, so a corrupted
+            // .credentials.json could reach this unfiltered. TryAddWithoutValidation
+            // never throws and never echoes the value back, so the token can't end up
+            // in any log message under any input.
+            if (!request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {credential.Value.AccessToken}"))
+            {
+                _log.Write("SubscriptionUsageReader: credential value is not a valid header value");
+                return;
+            }
             request.Headers.Add("anthropic-version", AnthropicVersion);
             request.Headers.Add("anthropic-beta", OAuthBeta);
             request.Content = new StringContent(RequestBody, System.Text.Encoding.UTF8, "application/json");

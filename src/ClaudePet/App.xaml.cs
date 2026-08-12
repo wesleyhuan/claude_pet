@@ -238,7 +238,15 @@ public partial class App : System.Windows.Application
                 if (enabled)
                     _subscriptionUsageReader.Start();
                 else
+                {
                     _subscriptionUsageReader.Stop();
+                    // Clear the cached snapshot so RefreshTooltip() stops feeding a
+                    // now-stale, increasingly-wrong percentage to TooltipFormatter -
+                    // otherwise the tooltip's subscription line stays frozen forever
+                    // (TooltipFormatter treats null as "fall back to the RateLimitReader
+                    // line, or omit entirely if that's unset too").
+                    _trayIconManager.UpdateSubscriptionUsage(null);
+                }
             };
 
             if (settingsStore.Load().ShowSubscriptionUsage)
