@@ -99,4 +99,17 @@ public class SubscriptionCredentialReaderTests : IDisposable
 
         Assert.Null(result);
     }
+
+    [Fact]
+    public void TryRead_OutOfRangeExpiresAt_ReturnsNullAndReportsError()
+    {
+        WriteFile("""{"claudeAiOauth":{"accessToken":"sk-ant-oat01-test","expiresAt":99999999999999999}}""");
+        string? reportedError = null;
+        var reader = new SubscriptionCredentialReader(FilePath, err => reportedError = err);
+
+        var result = reader.TryRead();
+
+        Assert.Null(result);
+        Assert.Equal("credential file malformed", reportedError);
+    }
 }

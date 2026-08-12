@@ -52,7 +52,7 @@ public sealed class SubscriptionCredentialReader
 
             return (tokenElement.GetString()!, DateTimeOffset.FromUnixTimeMilliseconds(expiresElement.GetInt64()));
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or ArgumentOutOfRangeException)
         {
             _onError?.Invoke("credential file malformed");
             return null;
