@@ -30,6 +30,7 @@ public sealed class SubscriptionUsageReader : IDisposable
     private string? _lastLoggedCredentialError;
     private string? _lastLoggedErrorStatus;
     private string? _lastLoggedExceptionType;
+    private bool _hasLoggedMissingHeaders;
 
     public event Action<SubscriptionUsageSnapshot>? SubscriptionUsageChanged;
 
@@ -117,10 +118,15 @@ public sealed class SubscriptionUsageReader : IDisposable
             var snapshot = SubscriptionUsageParser.Parse(headers);
             if (snapshot is null)
             {
-                _log.Write("SubscriptionUsageReader: response missing expected anthropic-ratelimit-unified-* headers");
+                if (!_hasLoggedMissingHeaders)
+                {
+                    _log.Write("SubscriptionUsageReader: response missing expected anthropic-ratelimit-unified-* headers");
+                    _hasLoggedMissingHeaders = true;
+                }
                 ApplyBackoff();
                 return;
             }
+            _hasLoggedMissingHeaders = false;
 
             ResetBackoff();
             SubscriptionUsageChanged?.Invoke(snapshot);
