@@ -126,4 +126,16 @@ public class PixelGridParserTests
         Assert.NotNull(frame);
         Assert.Equal(0x80112233u, frame![0, 15]);
     }
+
+    [Fact]
+    public void Parse_MultiCharacterPaletteKey_ReturnsNullAndReportsError()
+    {
+        var json = """{ "palette": { "AB": "00000000" }, "pixels": [] }""";
+        string? error = null;
+
+        var frame = PixelGridParser.Parse(json, err => error = err);
+
+        Assert.Null(frame);
+        Assert.NotNull(error);
+    }
 }
