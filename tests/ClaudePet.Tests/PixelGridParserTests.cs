@@ -130,7 +130,8 @@ public class PixelGridParserTests
     [Fact]
     public void Parse_MultiCharacterPaletteKey_ReturnsNullAndReportsError()
     {
-        var json = """{ "palette": { "AB": "00000000" }, "pixels": [] }""";
+        var rows = Enumerable.Repeat("\"................\"", 16);
+        var json = $$"""{ "palette": { "AB": "00000000" }, "pixels": [ {{string.Join(",", rows)}} ] }""";
         string? error = null;
 
         var frame = PixelGridParser.Parse(json, err => error = err);
