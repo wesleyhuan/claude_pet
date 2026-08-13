@@ -47,10 +47,35 @@ public static class TooltipFormatter
         if (subscriptionUsage is null)
             return null;
 
-        var resetPart = subscriptionUsage.ResetsAt is { } resetsAt
-            ? $", {FormatRelative(resetsAt, now)}"
-            : "";
-        return $"Sub: {subscriptionUsage.Percent:F0}% ({subscriptionUsage.WindowLabel}){resetPart}";
+        // The tooltip has a 63-char budget shared with line 1, so it shows
+        // only whichever window is more constrained (higher utilization) -
+        // the pet-window badge is where both windows are shown side by
+        // side. On an exact tie, prefer the 5-hour window - it resets
+        // sooner and is what Claude Code's own status line surfaces first.
+        var fiveHourPercent = subscriptionUsage.FiveHourPercent;
+        var weeklyPercent = subscriptionUsage.WeeklyPercent;
+
+        if (fiveHourPercent is null && weeklyPercent is null)
+            return null;
+
+        string label;
+        double percent;
+        DateTimeOffset? resetsAt;
+        if (weeklyPercent is null || (fiveHourPercent is not null && fiveHourPercent >= weeklyPercent))
+        {
+            label = "5h";
+            percent = fiveHourPercent!.Value;
+            resetsAt = subscriptionUsage.FiveHourResetsAt;
+        }
+        else
+        {
+            label = "7d";
+            percent = weeklyPercent.Value;
+            resetsAt = subscriptionUsage.WeeklyResetsAt;
+        }
+
+        var resetPart = resetsAt is { } r ? $", {FormatRelative(r, now)}" : "";
+        return $"Sub: {percent:F0}% ({label}){resetPart}";
     }
 
     private static string? FormatRateLimitLine(RateLimitSnapshot? rateLimit, DateTimeOffset now)

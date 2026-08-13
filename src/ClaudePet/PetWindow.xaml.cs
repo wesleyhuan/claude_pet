@@ -18,6 +18,9 @@ public partial class PetWindow : Window
     private IReadOnlyList<PixelFrame> _currentFrames = PixelArtGenerator.GenerateFrames(Mood.NoSession);
     private int _frameIndex;
     private bool _dragMode;
+    private Mood _currentMood = Mood.NoSession;
+    private bool _isWorking;
+    private bool _isWorried;
 
     public PetWindow(SettingsStore settingsStore)
     {
@@ -53,9 +56,46 @@ public partial class PetWindow : Window
 
     public void SetMood(Mood mood)
     {
-        _currentFrames = PixelArtGenerator.GenerateFrames(mood);
+        if (_currentMood == mood)
+            return;
+        _currentMood = mood;
+        RegenerateFrames();
+    }
+
+    public void SetWorking(bool isWorking)
+    {
+        if (_isWorking == isWorking)
+            return;
+        _isWorking = isWorking;
+        RegenerateFrames();
+    }
+
+    public void SetWorried(bool isWorried)
+    {
+        if (_isWorried == isWorried)
+            return;
+        _isWorried = isWorried;
+        RegenerateFrames();
+    }
+
+    private void RegenerateFrames()
+    {
+        _currentFrames = PixelArtGenerator.GenerateFrames(_currentMood, _isWorking, _isWorried);
         _frameIndex = 0;
         Render();
+    }
+
+    public void UpdateSubscriptionUsage(SubscriptionUsageSnapshot? snapshot)
+    {
+        var text = PetBadgeFormatter.Format(snapshot);
+        if (text is null)
+        {
+            UsageBadgeBorder.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        UsageBadgeText.Text = text;
+        UsageBadgeBorder.Visibility = Visibility.Visible;
     }
 
     public void SetDragMode(bool enabled)

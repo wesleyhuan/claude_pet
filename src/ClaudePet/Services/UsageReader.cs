@@ -8,6 +8,11 @@ namespace ClaudePet.Services;
 public sealed class UsageReader : IDisposable
 {
     private const int DebounceMilliseconds = 300;
+    // How long since the last transcript write before "Working" clears back
+    // to idle. Checked on the 5s poll timer, so actual clear latency is
+    // WorkingWindowSeconds to WorkingWindowSeconds+5s - fine for a mood cue,
+    // not a precise timer.
+    private const double WorkingWindowSeconds = 12;
 
     private readonly string _projectsRoot;
     private readonly TailReader _tailReader = new();
@@ -18,8 +23,15 @@ public sealed class UsageReader : IDisposable
     private readonly object _refreshLock = new();
     private string? _lastWarnedModel;
     private bool? _hadSession;
+    private DateTimeOffset? _lastActivityUtc;
+    private bool _isWorking;
 
     public event Action<UsageSnapshot?>? UsageChanged;
+    // Fires true the moment the active session's transcript is written to,
+    // and false again once WorkingWindowSeconds passes with no further
+    // writes - a proxy for "Claude Code is actively generating right now",
+    // distinct from UsageChanged's percent-based mood.
+    public event Action<bool>? WorkingChanged;
 
     public UsageReader(string projectsRoot, DebugLog log)
     {
@@ -27,7 +39,11 @@ public sealed class UsageReader : IDisposable
         _log = log;
 
         _pollTimer = new System.Timers.Timer(5000) { AutoReset = true };
-        _pollTimer.Elapsed += (_, _) => Refresh();
+        _pollTimer.Elapsed += (_, _) =>
+        {
+            Refresh();
+            CheckWorkingExpiry();
+        };
 
         // Coalesce bursts of watcher events (a single write can fire several
         // Changed/Created events in quick succession) behind a ~300ms debounce
@@ -45,8 +61,8 @@ public sealed class UsageReader : IDisposable
                 Filter = "*.jsonl",
                 NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName
             };
-            _watcher.Changed += (_, _) => RestartDebounce();
-            _watcher.Created += (_, _) => RestartDebounce();
+            _watcher.Changed += (_, _) => { RecordActivity(); RestartDebounce(); };
+            _watcher.Created += (_, _) => { RecordActivity(); RestartDebounce(); };
             _watcher.EnableRaisingEvents = true;
         }
         else
@@ -59,6 +75,26 @@ public sealed class UsageReader : IDisposable
     {
         _debounceTimer.Stop();
         _debounceTimer.Start();
+    }
+
+    private void RecordActivity()
+    {
+        _lastActivityUtc = DateTimeOffset.UtcNow;
+        if (!_isWorking)
+        {
+            _isWorking = true;
+            WorkingChanged?.Invoke(true);
+        }
+    }
+
+    private void CheckWorkingExpiry()
+    {
+        if (_isWorking && _lastActivityUtc is { } last &&
+            (DateTimeOffset.UtcNow - last).TotalSeconds >= WorkingWindowSeconds)
+        {
+            _isWorking = false;
+            WorkingChanged?.Invoke(false);
+        }
     }
 
     public void Start()

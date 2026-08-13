@@ -17,7 +17,7 @@ public class SubscriptionUsageParserTests
     }
 
     [Fact]
-    public void Parse_OnlyFiveHourPresent_UsesFiveHour()
+    public void Parse_OnlyFiveHourPresent_LeavesWeeklyNull()
     {
         var headers = Headers(
             ("anthropic-ratelimit-unified-5h-utilization", "0.33"),
@@ -26,63 +26,41 @@ public class SubscriptionUsageParserTests
         var result = SubscriptionUsageParser.Parse(headers);
 
         Assert.NotNull(result);
-        Assert.Equal(33.0, result!.Percent, precision: 3);
-        Assert.Equal("5h", result.WindowLabel);
-        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1774933200), result.ResetsAt);
+        Assert.Equal(33.0, result!.FiveHourPercent!.Value, precision: 3);
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1774933200), result.FiveHourResetsAt);
+        Assert.Null(result.WeeklyPercent);
+        Assert.Null(result.WeeklyResetsAt);
     }
 
     [Fact]
-    public void Parse_OnlySevenDayPresent_UsesSevenDay()
+    public void Parse_OnlySevenDayPresent_LeavesFiveHourNull()
     {
         var headers = Headers(("anthropic-ratelimit-unified-7d-utilization", "0.13"));
 
         var result = SubscriptionUsageParser.Parse(headers);
 
         Assert.NotNull(result);
-        Assert.Equal(13.0, result!.Percent, precision: 3);
-        Assert.Equal("7d", result.WindowLabel);
-        Assert.Null(result.ResetsAt);
+        Assert.Equal(13.0, result!.WeeklyPercent!.Value, precision: 3);
+        Assert.Null(result.WeeklyResetsAt);
+        Assert.Null(result.FiveHourPercent);
     }
 
     [Fact]
-    public void Parse_BothPresentSevenDayHigher_PicksSevenDay()
+    public void Parse_BothPresent_PopulatesBothWindowsIndependently()
     {
         var headers = Headers(
             ("anthropic-ratelimit-unified-5h-utilization", "0.33"),
-            ("anthropic-ratelimit-unified-7d-utilization", "0.53"));
+            ("anthropic-ratelimit-unified-5h-reset", "1774933200"),
+            ("anthropic-ratelimit-unified-7d-utilization", "0.53"),
+            ("anthropic-ratelimit-unified-7d-reset", "1775019600"));
 
         var result = SubscriptionUsageParser.Parse(headers);
 
         Assert.NotNull(result);
-        Assert.Equal("7d", result!.WindowLabel);
-        Assert.Equal(53.0, result.Percent, precision: 3);
-    }
-
-    [Fact]
-    public void Parse_BothPresentFiveHourHigher_PicksFiveHour()
-    {
-        var headers = Headers(
-            ("anthropic-ratelimit-unified-5h-utilization", "0.82"),
-            ("anthropic-ratelimit-unified-7d-utilization", "0.20"));
-
-        var result = SubscriptionUsageParser.Parse(headers);
-
-        Assert.NotNull(result);
-        Assert.Equal("5h", result!.WindowLabel);
-        Assert.Equal(82.0, result.Percent, precision: 3);
-    }
-
-    [Fact]
-    public void Parse_ExactTie_PrefersFiveHour()
-    {
-        var headers = Headers(
-            ("anthropic-ratelimit-unified-5h-utilization", "0.50"),
-            ("anthropic-ratelimit-unified-7d-utilization", "0.50"));
-
-        var result = SubscriptionUsageParser.Parse(headers);
-
-        Assert.NotNull(result);
-        Assert.Equal("5h", result!.WindowLabel);
+        Assert.Equal(33.0, result!.FiveHourPercent!.Value, precision: 3);
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1774933200), result.FiveHourResetsAt);
+        Assert.Equal(53.0, result.WeeklyPercent!.Value, precision: 3);
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1775019600), result.WeeklyResetsAt);
     }
 
     [Fact]
@@ -99,13 +77,13 @@ public class SubscriptionUsageParserTests
     public void Parse_UtilizationAboveOne_ClampsToOneHundredPercent()
     {
         // Defensive clamp: tolerate an unexpected already-percent-scale value
-        // rather than producing an invalid (e.g. 8200%) tooltip line.
+        // rather than producing an invalid (e.g. 8200%) display.
         var headers = Headers(("anthropic-ratelimit-unified-5h-utilization", "82"));
 
         var result = SubscriptionUsageParser.Parse(headers);
 
         Assert.NotNull(result);
-        Assert.Equal(100.0, result!.Percent);
+        Assert.Equal(100.0, result!.FiveHourPercent!.Value);
     }
 
     [Fact]
@@ -118,7 +96,7 @@ public class SubscriptionUsageParserTests
         var result = SubscriptionUsageParser.Parse(headers);
 
         Assert.NotNull(result);
-        Assert.Null(result!.ResetsAt);
+        Assert.Null(result!.FiveHourResetsAt);
     }
 
     [Fact]
@@ -129,6 +107,6 @@ public class SubscriptionUsageParserTests
         var result = SubscriptionUsageParser.Parse(headers);
 
         Assert.NotNull(result);
-        Assert.Equal(45.0, result!.Percent, precision: 3);
+        Assert.Equal(45.0, result!.FiveHourPercent!.Value, precision: 3);
     }
 }

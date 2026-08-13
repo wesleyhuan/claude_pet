@@ -21,18 +21,10 @@ public static class SubscriptionUsageParser
 
         if (fiveHour is null && sevenDay is null)
             return null;
-        if (fiveHour is null)
-            return new SubscriptionUsageSnapshot(sevenDay!.Value.Percent, "7d", sevenDay.Value.ResetsAt);
-        if (sevenDay is null)
-            return new SubscriptionUsageSnapshot(fiveHour.Value.Percent, "5h", fiveHour.Value.ResetsAt);
 
-        // Whichever window is more constrained (higher utilization) is the
-        // more actionable single number for the one-line tooltip budget. On
-        // an exact tie, prefer the 5-hour window - it resets sooner and is
-        // what Claude Code's own status line surfaces first.
-        return fiveHour.Value.Percent >= sevenDay.Value.Percent
-            ? new SubscriptionUsageSnapshot(fiveHour.Value.Percent, "5h", fiveHour.Value.ResetsAt)
-            : new SubscriptionUsageSnapshot(sevenDay.Value.Percent, "7d", sevenDay.Value.ResetsAt);
+        return new SubscriptionUsageSnapshot(
+            fiveHour?.Percent, fiveHour?.ResetsAt,
+            sevenDay?.Percent, sevenDay?.ResetsAt);
     }
 
     private static (double Percent, DateTimeOffset? ResetsAt)? ParseWindow(

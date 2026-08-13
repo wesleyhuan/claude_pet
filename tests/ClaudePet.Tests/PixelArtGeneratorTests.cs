@@ -65,4 +65,55 @@ public class PixelArtGeneratorTests
         Assert.NotEqual(0u, topRowFrame0 >> 24);
         Assert.Equal(0u, topRowFrame1 >> 24);
     }
+
+    [Fact]
+    public void GenerateFrames_NoOverlays_TopRightAndTopLeftMatchBodyColor()
+    {
+        var frame = PixelArtGenerator.GenerateFrames(Mood.Happy)[0];
+        var bodyColor = frame[8, 8];
+
+        Assert.Equal(bodyColor, frame[12, 2]);
+        Assert.Equal(bodyColor, frame[2, 2]);
+    }
+
+    [Fact]
+    public void GenerateFrames_IsWorking_AddsAccentPixelNearTopRight()
+    {
+        var frame = PixelArtGenerator.GenerateFrames(Mood.Happy, isWorking: true)[0];
+        var bodyColor = PixelArtGenerator.GenerateFrames(Mood.Happy)[0][12, 2];
+
+        Assert.NotEqual(bodyColor, frame[12, 2]);
+    }
+
+    [Fact]
+    public void GenerateFrames_IsWorried_AddsSweatDropNearTopLeft()
+    {
+        var frame = PixelArtGenerator.GenerateFrames(Mood.Happy, isWorried: true)[0];
+        var bodyColor = PixelArtGenerator.GenerateFrames(Mood.Happy)[0][2, 2];
+
+        Assert.NotEqual(bodyColor, frame[2, 2]);
+    }
+
+    [Fact]
+    public void GenerateFrames_WorkingAndWorried_BothOverlaysCoexist()
+    {
+        var frame = PixelArtGenerator.GenerateFrames(Mood.Happy, isWorking: true, isWorried: true)[0];
+        var plain = PixelArtGenerator.GenerateFrames(Mood.Happy)[0];
+
+        Assert.NotEqual(plain[12, 2], frame[12, 2]);
+        Assert.NotEqual(plain[2, 2], frame[2, 2]);
+    }
+
+    [Fact]
+    public void GenerateFrames_IsWorking_SparkPositionAlternatesBetweenFrames()
+    {
+        var frames = PixelArtGenerator.GenerateFrames(Mood.Happy, isWorking: true);
+
+        // Frame 0 (not squished, top=2): spark at x=12. Frame 1 (squished,
+        // top=3): spark at x=11, and frame 1's own top row (y=2) is outside
+        // the squished body, so x=12 goes back to transparent there.
+        Assert.NotEqual(0u, frames[0][12, 2] >> 24);
+        Assert.Equal(0u, frames[1][12, 2] >> 24);
+        Assert.NotEqual(0u, frames[1][11, 3] >> 24);
+    }
 }

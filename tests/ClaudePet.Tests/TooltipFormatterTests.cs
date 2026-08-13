@@ -147,12 +147,34 @@ public class TooltipFormatterTests
     {
         var now = DateTimeOffset.UtcNow;
         var rateLimit = new RateLimitSnapshot(500, 1000, 50.0, now.AddHours(1));
-        var subscriptionUsage = new SubscriptionUsageSnapshot(82.0, "5h", now.AddHours(2).AddMinutes(30));
+        var subscriptionUsage = new SubscriptionUsageSnapshot(82.0, now.AddHours(2).AddMinutes(30), 20.0, now.AddDays(3));
 
         var result = TooltipFormatter.Format(null, rateLimit, subscriptionUsage, now);
 
         Assert.Equal("Claude Pet: no active session\nSub: 82% (5h), 2h", result);
         Assert.DoesNotContain("Rate limit", result);
+    }
+
+    [Fact]
+    public void Format_SubscriptionUsageWeeklyHigherThanFiveHour_PicksWeekly()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var subscriptionUsage = new SubscriptionUsageSnapshot(20.0, now.AddHours(2), 53.0, now.AddDays(3));
+
+        var result = TooltipFormatter.Format(null, null, subscriptionUsage, now);
+
+        Assert.Equal("Claude Pet: no active session\nSub: 53% (7d), 3d", result);
+    }
+
+    [Fact]
+    public void Format_SubscriptionUsageExactTie_PrefersFiveHour()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var subscriptionUsage = new SubscriptionUsageSnapshot(50.0, now.AddHours(1), 50.0, now.AddDays(1));
+
+        var result = TooltipFormatter.Format(null, null, subscriptionUsage, now);
+
+        Assert.Equal("Claude Pet: no active session\nSub: 50% (5h), 1h", result);
     }
 
     [Fact]
@@ -169,7 +191,7 @@ public class TooltipFormatterTests
     [Fact]
     public void Format_SubscriptionUsageWithoutResetsAt_OmitsResetClause()
     {
-        var subscriptionUsage = new SubscriptionUsageSnapshot(13.0, "7d", null);
+        var subscriptionUsage = new SubscriptionUsageSnapshot(null, null, 13.0, null);
 
         var result = TooltipFormatter.Format(null, null, subscriptionUsage);
 
@@ -181,7 +203,7 @@ public class TooltipFormatterTests
     {
         var now = DateTimeOffset.UtcNow;
         var usage = new UsageSnapshot(int.MaxValue, int.MaxValue, 100.0);
-        var subscriptionUsage = new SubscriptionUsageSnapshot(99.9999, "5h", now.AddHours(23).AddMinutes(59));
+        var subscriptionUsage = new SubscriptionUsageSnapshot(99.9999, now.AddHours(23).AddMinutes(59), null, null);
 
         var result = TooltipFormatter.Format(usage, null, subscriptionUsage, now);
 

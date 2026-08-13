@@ -9,8 +9,27 @@
         Topmost="True"
         ShowInTaskbar="False"
         ResizeMode="NoResize">
-    <Image x:Name="SpriteImage"
-           Width="128" Height="128"
-           RenderOptions.BitmapScalingMode="NearestNeighbor"
-           Stretch="Uniform" />
+    <Grid>
+        <Image x:Name="SpriteImage"
+               Width="128" Height="128"
+               RenderOptions.BitmapScalingMode="NearestNeighbor"
+               Stretch="Uniform" />
+        <Border x:Name="UsageBadgeBorder"
+                Visibility="Collapsed"
+                Background="#B0000000"
+                CornerRadius="3"
+                Padding="3,1"
+                MaxWidth="124"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Bottom"
+                Margin="0,0,0,4">
+            <TextBlock x:Name="UsageBadgeText"
+                       FontFamily="Consolas"
+                       FontSize="9"
+                       FontWeight="Bold"
+                       Foreground="White"
+                       TextAlignment="Center"
+                       TextWrapping="Wrap" />
+        </Border>
+    </Grid>
 </Window>

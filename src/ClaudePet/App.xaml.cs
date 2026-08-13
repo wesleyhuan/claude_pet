@@ -29,6 +29,8 @@ public partial class App : System.Windows.Application
     private System.Threading.Mutex? _singleInstanceMutex;
     private Mood? _lastAppliedMood;
     private DebugLog? _log;
+    private UsageSnapshot? _lastUsageSnapshot;
+    private SubscriptionUsageSnapshot? _lastSubscriptionUsageSnapshot;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -169,11 +171,30 @@ public partial class App : System.Windows.Application
                         // on every snapshot even when the mood band doesn't, so this is
                         // updated unconditionally.
                         _trayIconManager.UpdateUsage(snapshot);
+
+                        _lastUsageSnapshot = snapshot;
+                        UpdateWorriedState();
                     });
                 }
                 catch (Exception ex) when (ex is TaskCanceledException or InvalidOperationException)
                 {
                     log.Write($"UsageChanged handler: dispatcher unavailable, dropping update: {ex.Message}");
+                }
+            };
+            _usageReader.WorkingChanged += isWorking =>
+            {
+                // Same BeginInvoke + shutdown-guard reasoning as UsageChanged above -
+                // this also fires from a FileSystemWatcher threadpool callback.
+                if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+                    return;
+
+                try
+                {
+                    Dispatcher.BeginInvoke(() => _petWindow.SetWorking(isWorking));
+                }
+                catch (Exception ex) when (ex is TaskCanceledException or InvalidOperationException)
+                {
+                    log.Write($"WorkingChanged handler: dispatcher unavailable, dropping update: {ex.Message}");
                 }
             };
             _usageReader.Start();
@@ -225,6 +246,10 @@ public partial class App : System.Windows.Application
                     Dispatcher.BeginInvoke(() =>
                     {
                         _trayIconManager.UpdateSubscriptionUsage(snapshot);
+                        _petWindow.UpdateSubscriptionUsage(snapshot);
+
+                        _lastSubscriptionUsageSnapshot = snapshot;
+                        UpdateWorriedState();
                     });
                 }
                 catch (Exception ex) when (ex is TaskCanceledException or InvalidOperationException)
@@ -244,8 +269,14 @@ public partial class App : System.Windows.Application
                     // now-stale, increasingly-wrong percentage to TooltipFormatter -
                     // otherwise the tooltip's subscription line stays frozen forever
                     // (TooltipFormatter treats null as "fall back to the RateLimitReader
-                    // line, or omit entirely if that's unset too").
+                    // line, or omit entirely if that's unset too"). Same reasoning for
+                    // the pet-window badge - clear it so it doesn't keep showing a
+                    // stale percentage after the feature is turned off.
                     _trayIconManager.UpdateSubscriptionUsage(null);
+                    _petWindow.UpdateSubscriptionUsage(null);
+
+                    _lastSubscriptionUsageSnapshot = null;
+                    UpdateWorriedState();
                 }
             };
 
@@ -284,6 +315,9 @@ public partial class App : System.Windows.Application
 
         base.OnExit(e);
     }
+
+    private void UpdateWorriedState() =>
+        _petWindow?.SetWorried(WorriedEvaluator.IsWorried(_lastUsageSnapshot, _lastSubscriptionUsageSnapshot));
 
     private void OnDispatcherUnhandledException(object sender, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e)
     {
