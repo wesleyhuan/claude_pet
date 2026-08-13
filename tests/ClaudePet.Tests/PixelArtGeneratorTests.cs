@@ -116,4 +116,41 @@ public class PixelArtGeneratorTests
         Assert.Equal(0u, frames[1][12, 2] >> 24);
         Assert.NotEqual(0u, frames[1][11, 3] >> 24);
     }
+
+    [Fact]
+    public void GenerateWorkingOverlayFrame_NotSquished_HasExactlyOneOpaquePixelNearTopRight()
+    {
+        var frame = PixelArtGenerator.GenerateWorkingOverlayFrame(squish: false);
+
+        Assert.Equal(1, CountOpaquePixels(frame));
+        Assert.NotEqual(0u, frame[12, 2] >> 24);
+    }
+
+    [Fact]
+    public void GenerateWorkingOverlayFrame_Squished_SparkMovesOnePixelLeft()
+    {
+        var frame = PixelArtGenerator.GenerateWorkingOverlayFrame(squish: true);
+
+        Assert.NotEqual(0u, frame[11, 3] >> 24);
+        Assert.Equal(1, CountOpaquePixels(frame));
+    }
+
+    [Fact]
+    public void GenerateWorriedOverlayFrame_NotSquished_HasExactlyThreeOpaquePixelsNearTopLeft()
+    {
+        var frame = PixelArtGenerator.GenerateWorriedOverlayFrame(squish: false);
+
+        Assert.Equal(3, CountOpaquePixels(frame));
+        Assert.NotEqual(0u, frame[2, 2] >> 24);
+    }
+
+    private static int CountOpaquePixels(PixelFrame frame)
+    {
+        int count = 0;
+        for (int y = 0; y < frame.Height; y++)
+            for (int x = 0; x < frame.Width; x++)
+                if ((frame[x, y] >> 24) != 0)
+                    count++;
+        return count;
+    }
 }

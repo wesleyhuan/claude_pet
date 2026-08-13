@@ -22,6 +22,37 @@ public static class PixelArtGenerator
         };
     }
 
+    // Standalone overlay frames (transparent everywhere except the accent
+    // pixels) - used by GenerateFrame below, and reused directly by
+    // ExampleSkinGenerator to seed the starter skin's overlay art without
+    // duplicating this coordinate math.
+    public static PixelFrame GenerateWorkingOverlayFrame(bool squish)
+    {
+        var pixels = new uint[Size * Size];
+        Array.Fill(pixels, Transparent);
+
+        int top = squish ? 3 : 2;
+        int right = Size - 3;
+        int sparkX = squish ? right - 2 : right - 1;
+        pixels[top * Size + sparkX] = WorkingColor;
+
+        return new PixelFrame(Size, Size, pixels);
+    }
+
+    public static PixelFrame GenerateWorriedOverlayFrame(bool squish)
+    {
+        var pixels = new uint[Size * Size];
+        Array.Fill(pixels, Transparent);
+
+        int top = squish ? 3 : 2;
+        int left = 2;
+        pixels[top * Size + left] = WorriedColor;
+        pixels[(top + 1) * Size + left] = WorriedColor;
+        pixels[(top + 1) * Size + (left + 1)] = WorriedColor;
+
+        return new PixelFrame(Size, Size, pixels);
+    }
+
     private static uint BodyColor(Mood mood) => mood switch
     {
         Mood.Happy => 0xFF4CAF50,
@@ -68,23 +99,18 @@ public static class PixelArtGenerator
         }
 
         if (isWorking)
-        {
-            // A single accent pixel that hops between two spots near the
-            // top-right corner each frame, read as a small "spinner" pulse
-            // in step with the existing squish animation.
-            int sparkX = squish ? right - 2 : right - 1;
-            pixels[top * Size + sparkX] = WorkingColor;
-        }
+            CopyOpaquePixels(pixels, GenerateWorkingOverlayFrame(squish));
 
         if (isWorried)
-        {
-            // A small sweat-drop cluster at the top-left, clear of the eyes
-            // (which start at x=5).
-            pixels[top * Size + left] = WorriedColor;
-            pixels[(top + 1) * Size + left] = WorriedColor;
-            pixels[(top + 1) * Size + (left + 1)] = WorriedColor;
-        }
+            CopyOpaquePixels(pixels, GenerateWorriedOverlayFrame(squish));
 
         return new PixelFrame(Size, Size, pixels);
+    }
+
+    private static void CopyOpaquePixels(uint[] destination, PixelFrame overlay)
+    {
+        for (int i = 0; i < destination.Length; i++)
+            if ((overlay.Pixels[i] >> 24) != 0)
+                destination[i] = overlay.Pixels[i];
     }
 }
