@@ -4,6 +4,7 @@ using ClaudePet.Logging;
 using ClaudePet.Models;
 using ClaudePet.Services;
 using ClaudePet.Settings;
+using ClaudePet.Skins;
 using ClaudePet.Tray;
 
 namespace ClaudePet;
@@ -122,6 +123,34 @@ public partial class App : System.Windows.Application
 
             _trayIconManager = new TrayIconManager(_petWindow, settingsStore, log);
             _moodStateMachine = new MoodStateMachine();
+
+            var skinsRoot = Path.Combine(appDataDir, "skins");
+            ExampleSkinGenerator.EnsureExampleSkin(skinsRoot, log);
+
+            var discoveredSkins = new SkinLoader(skinsRoot, log).DiscoverSkins();
+            var activeSkinName = settingsStore.Load().ActiveSkinName;
+            Skin? activeSkin = null;
+            if (activeSkinName is not null)
+            {
+                activeSkin = discoveredSkins.FirstOrDefault(s => s.FolderName == activeSkinName);
+                if (activeSkin is null)
+                {
+                    log.Write($"Persisted ActiveSkinName '{activeSkinName}' is no longer valid; falling back to Default.");
+                    activeSkinName = null;
+                    settingsStore.Save(settingsStore.Load() with { ActiveSkinName = null });
+                }
+            }
+            _petWindow.SetSkin(activeSkin);
+
+            _trayIconManager.PopulateSkinMenu(
+                discoveredSkins.Select(s => (s.FolderName, s.DisplayName)).ToList(),
+                activeSkinName);
+
+            _trayIconManager.SkinSelected += folderName =>
+            {
+                var skin = folderName is null ? null : discoveredSkins.FirstOrDefault(s => s.FolderName == folderName);
+                _petWindow.SetSkin(skin);
+            };
 
             var projectsRoot = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
