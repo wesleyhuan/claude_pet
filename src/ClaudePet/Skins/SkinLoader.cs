@@ -47,7 +47,7 @@ public sealed class SkinLoader
         {
             manifestJson = File.ReadAllText(manifestPath);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
             _log.Write($"SkinLoader: skipping '{folderName}' - failed to read skin.json: {ex.Message}");
             return null;
@@ -118,7 +118,7 @@ public sealed class SkinLoader
                 return frame;
             }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
             _log.Write($"SkinLoader: skipping '{folderName}' - failed to read {relativePath}: {ex.Message}");
             return null;
