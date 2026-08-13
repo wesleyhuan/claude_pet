@@ -8,6 +8,7 @@ using ClaudePet.Models;
 using ClaudePet.Native;
 using ClaudePet.Rendering;
 using ClaudePet.Settings;
+using ClaudePet.Skins;
 
 namespace ClaudePet;
 
@@ -21,6 +22,7 @@ public partial class PetWindow : Window
     private Mood _currentMood = Mood.NoSession;
     private bool _isWorking;
     private bool _isWorried;
+    private Skin? _activeSkin;
 
     public PetWindow(SettingsStore settingsStore)
     {
@@ -78,9 +80,18 @@ public partial class PetWindow : Window
         RegenerateFrames();
     }
 
+    public void SetSkin(Skin? skin)
+    {
+        if (ReferenceEquals(_activeSkin, skin))
+            return;
+        _activeSkin = skin;
+        RegenerateFrames();
+    }
+
     private void RegenerateFrames()
     {
-        _currentFrames = PixelArtGenerator.GenerateFrames(_currentMood, _isWorking, _isWorried);
+        _currentFrames = _activeSkin?.GenerateFrames(_currentMood, _isWorking, _isWorried)
+            ?? PixelArtGenerator.GenerateFrames(_currentMood, _isWorking, _isWorried);
         _frameIndex = 0;
         Render();
     }
