@@ -27,6 +27,7 @@ public class SettingsStoreTests : IDisposable
         Assert.Null(settings.WindowTop);
         Assert.False(settings.RunAtStartup);
         Assert.False(settings.ShowSubscriptionUsage);
+        Assert.Null(settings.ActiveSkinName);
     }
 
     [Fact]
@@ -51,6 +52,18 @@ public class SettingsStoreTests : IDisposable
         var loaded = store.Load();
 
         Assert.True(loaded.ShowSubscriptionUsage);
+    }
+
+    [Fact]
+    public void SaveThenLoad_RoundTripsActiveSkinName()
+    {
+        var store = new SettingsStore(FilePath);
+        var original = new AppSettings { ActiveSkinName = "my-cool-skin" };
+
+        store.Save(original);
+        var loaded = store.Load();
+
+        Assert.Equal("my-cool-skin", loaded.ActiveSkinName);
     }
 
     [Fact]

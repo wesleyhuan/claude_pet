@@ -14,4 +14,10 @@ public sealed record AppSettings
     // headers via the user's Claude Code OAuth credential. See
     // docs/superpowers/specs/2026-08-09-subscription-usage-design.md.
     public bool ShowSubscriptionUsage { get; init; }
+
+    // Folder name (under %LOCALAPPDATA%\ClaudePet\skins\) of the active custom
+    // skin. null always means the built-in Default skin - never persist an
+    // empty string as a sentinel. See
+    // docs/superpowers/specs/2026-08-13-pet-skin-system-design.md.
+    public string? ActiveSkinName { get; init; }
 }
