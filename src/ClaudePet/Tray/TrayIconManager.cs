@@ -15,12 +15,15 @@ public sealed class TrayIconManager : IDisposable
     private readonly SettingsStore _settingsStore;
     private readonly DebugLog _log;
     private readonly ToolStripMenuItem _dragItem;
+    private readonly ToolStripMenuItem _skinMenu;
+    private readonly List<(ToolStripMenuItem Item, string? FolderName)> _skinItems = new();
     private bool _dragMode;
     private UsageSnapshot? _lastUsage;
     private RateLimitSnapshot? _lastRateLimit;
     private SubscriptionUsageSnapshot? _lastSubscriptionUsage;
 
     public event Action<bool>? SubscriptionUsageToggled;
+    public event Action<string?>? SkinSelected;
 
     public TrayIconManager(PetWindow petWindow, SettingsStore settingsStore, DebugLog log)
     {
@@ -40,12 +43,15 @@ public sealed class TrayIconManager : IDisposable
             Checked = _settingsStore.Load().ShowSubscriptionUsage
         };
 
+        _skinMenu = new ToolStripMenuItem("Skin");
+
         var quitItem = new ToolStripMenuItem("Quit", null, (_, _) => System.Windows.Application.Current.Shutdown());
 
         var menu = new ContextMenuStrip();
         menu.Items.Add(_dragItem);
         menu.Items.Add(runAtStartupItem);
         menu.Items.Add(subscriptionUsageItem);
+        menu.Items.Add(_skinMenu);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(quitItem);
 
@@ -74,6 +80,37 @@ public sealed class TrayIconManager : IDisposable
     {
         _lastSubscriptionUsage = snapshot;
         RefreshTooltip();
+    }
+
+    public void PopulateSkinMenu(IReadOnlyList<(string FolderName, string DisplayName)> skins, string? activeSkinName)
+    {
+        _skinMenu.DropDownItems.Clear();
+        _skinItems.Clear();
+
+        AddSkinItem("Default", null, activeSkinName);
+        foreach (var (folderName, displayName) in skins)
+            AddSkinItem(displayName, folderName, activeSkinName);
+    }
+
+    private void AddSkinItem(string label, string? folderName, string? activeSkinName)
+    {
+        var item = new ToolStripMenuItem(label, null, (_, _) => SelectSkin(folderName))
+        {
+            Checked = folderName == activeSkinName
+        };
+        _skinMenu.DropDownItems.Add(item);
+        _skinItems.Add((item, folderName));
+    }
+
+    private void SelectSkin(string? folderName)
+    {
+        foreach (var (item, itemFolderName) in _skinItems)
+            item.Checked = itemFolderName == folderName;
+
+        var settings = _settingsStore.Load() with { ActiveSkinName = folderName };
+        _settingsStore.Save(settings);
+
+        SkinSelected?.Invoke(folderName);
     }
 
     private void RefreshTooltip()
