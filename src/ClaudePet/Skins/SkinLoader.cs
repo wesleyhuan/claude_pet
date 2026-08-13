@@ -22,7 +22,13 @@ public sealed class SkinLoader
         if (!Directory.Exists(_skinsRoot))
             return skins;
 
-        foreach (var dir in Directory.EnumerateDirectories(_skinsRoot))
+        // Directory.EnumerateDirectories(path) throws on the first inaccessible
+        // subfolder it encounters, aborting the whole enumeration - one bad ACL or
+        // broken junction under the skins root would fail every skin, not just the
+        // offending one. IgnoreInaccessible = true skips such folders instead of
+        // aborting (see SessionLocator.FindActiveSessionFile for the same pattern).
+        var enumerationOptions = new EnumerationOptions { IgnoreInaccessible = true };
+        foreach (var dir in Directory.EnumerateDirectories(_skinsRoot, "*", enumerationOptions))
         {
             var folderName = Path.GetFileName(dir);
             var skin = TryLoadSkin(dir, folderName);

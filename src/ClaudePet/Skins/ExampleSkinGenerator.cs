@@ -17,7 +17,7 @@ public static class ExampleSkinGenerator
     public static void EnsureExampleSkin(string skinsRoot, DebugLog log)
     {
         var exampleDir = Path.Combine(skinsRoot, "example");
-        if (Directory.Exists(exampleDir))
+        if (File.Exists(Path.Combine(exampleDir, "skin.json")))
             return;
 
         try
@@ -47,7 +47,7 @@ public static class ExampleSkinGenerator
                 Path.Combine(exampleDir, "skin.json"),
                 JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }));
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
             log.Write($"ExampleSkinGenerator: failed to write example skin: {ex.Message}");
         }
