@@ -56,6 +56,21 @@ dotnet run --project src/ClaudePet/ClaudePet.csproj
 The app runs from the system tray — right-click the tray icon for options
 (drag mode, run at startup, subscription usage, skin picker, quit).
 
+## Distributing to someone else
+
+Running from source requires the .NET 8 SDK. To hand someone a build that
+needs **no prerequisites at all** — no .NET SDK or Runtime install — publish
+a self-contained single-file executable:
+
+```powershell
+dotnet publish src/ClaudePet/ClaudePet.csproj -r win-x64 -c Release -o publish
+```
+
+This produces a single `publish\ClaudePet.exe` (~70MB, everything bundled
+in) that runs standalone on any Windows machine. It's unsigned, so Windows
+SmartScreen will likely warn on first run of a downloaded copy — that's
+expected for an app without a code-signing certificate.
+
 ## Tests
 
 ```powershell

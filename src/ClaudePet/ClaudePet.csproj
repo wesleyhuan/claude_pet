@@ -9,4 +9,15 @@
     <UseWindowsForms>true</UseWindowsForms>
   </PropertyGroup>
 
+  <!-- `dotnet publish -r win-x64` alone produces a self-contained
+       single-file .exe with no .NET runtime prerequisite on the target
+       machine. Scoped to only apply when a RuntimeIdentifier is given, so
+       ordinary `dotnet build`/`dotnet run` during development are unaffected. -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' != ''">
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+  </PropertyGroup>
+
 </Project>
