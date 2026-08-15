@@ -94,3 +94,7 @@ and never leaves your machine except for the two opt-in network features
 (rate-limit tooltip via your own `ANTHROPIC_API_KEY`, and the unofficial
 subscription-usage poll via your own Claude Code OAuth session) — both of
 which only talk to Anthropic's API using credentials you already have.
+
+## License
+
+[MIT](LICENSE)
