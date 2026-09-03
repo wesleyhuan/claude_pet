@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "grep -o '\"file_path\"[[:space:]]*:[[:space:]]*\"[^\"]*\"' | sed -E 's/.*:[[:space:]]*\"(.*)\"$/\\1/' | { read -r f; case \"$f\" in *.cs) dotnet format whitespace ClaudePet.sln --include \"$f\" --no-restore >/dev/null 2>&1;; esac; }",
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}
