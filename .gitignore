@@ -22,3 +22,7 @@ obj/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Claude Code local/personal state
+.claude/settings.local.json
+.claude/worktrees/
